@@ -187,6 +187,15 @@ export interface RunEvent {
   createdAt: string;
 }
 
+export interface ResourceLease {
+  id: string;
+  runId: string;
+  resourceType: string;
+  resourceKey: string;
+  status: "ACTIVE" | "RELEASED" | "EXPIRED";
+  expiresAt: string;
+}
+
 export interface SubmitResult {
   run: AcceptanceRun;
   existing: boolean;

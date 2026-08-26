@@ -10,7 +10,7 @@ Attached document: engineering requirements and a staged implementation plan. It
 
 ## Current phase
 
-**Phase 2 — ready to start**
+**Phase 3 — ready to start**
 
 ## Completed in this phase
 
@@ -21,6 +21,11 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Added AJV-backed project/contract schema validation.
 - Added project registration, contract validation, task creation, run status/logs, and idempotent submit CLI flows.
 - Added templates and Phase 1 operations documentation.
+- Added managed detached worktrees with target-SHA checks, marker validation, dirty-state capture, reset, and safe removal.
+- Added external Artifact Store with path confinement, SHA-256 manifest finalization, and post-finalization write protection.
+- Added sanitized, shell-composition-free command runner and Generic Command Adapter for setup/build/lint/unit/integration/e2e stages.
+- Added runtime directories, port and runtime leases, marker validation, and lease-aware cleanup.
+- Added deterministic unit/integration coverage for worktree isolation, artifacts, command execution, verifier behavior, and runtime allocation.
 
 ## Phase 0 exit-gate evidence
 
@@ -41,12 +46,22 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Same idempotency key returns the original Run: PASS.
 - Project and acceptance-contract schema validation: PASS.
 
+## Phase 2 exit-gate evidence
+
+- `npm test`: PASS, 18 tests.
+- Detached worktree remains at target while builder changes the source checkout: PASS.
+- Reviewer dirty patch/status capture and reset-to-target: PASS.
+- Artifact SHA-256 manifest and finalized-write rejection: PASS.
+- Command shell-operator rejection and captured exit/output: PASS.
+- Generic verifier structured results, early failure, and `NOT_TESTED`: PASS.
+- Runtime path isolation and non-conflicting port leases: PASS.
+
 ## Risks and limits
 
 - Runtime support currently targets Node 24 because CAP uses the built-in `node:sqlite` API.
-- Phase 2 will add worktree freezing, external immutable artifacts, runtime allocation, command execution, generic verifiers, and safe cleanup.
+- Phase 3 will add fresh reviewer providers, the Acceptance Skill, Evidence/Acceptance Matrix, deterministic Quality Gate, and session lifecycle.
 - No real project, device, production service, or external Codex credential is touched by this bootstrap.
 
 ## Next phase
 
-Phase 2: Worktree, artifact, runtime, command runner, generic verifier, cleanup, leases, and fake-project E2E.
+Phase 3: Codex/fake reviewer providers, reviewer report schema, Evidence, Acceptance Matrix, Quality Gate, and reviewer sessions.

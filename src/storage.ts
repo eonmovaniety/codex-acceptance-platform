@@ -6,6 +6,7 @@ import type {
   ContractRecord,
   Project,
   RequirementRecord,
+  ResourceLease,
   RunEvent,
   RunStatus,
   Task,
@@ -114,6 +115,21 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_runs_project_task ON runs(project_id, task_id);
     `,
   },
+  {
+    version: "0003_resource_leases",
+    sql: `
+      CREATE TABLE IF NOT EXISTS resource_leases (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id),
+        resource_type TEXT NOT NULL,
+        resource_key TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RELEASED', 'EXPIRED')),
+        expires_at TEXT NOT NULL,
+        UNIQUE (resource_type, resource_key, status)
+      );
+      CREATE INDEX IF NOT EXISTS idx_resource_leases_run ON resource_leases(run_id);
+    `,
+  },
 ];
 
 type Row = Record<string, unknown>;
@@ -209,6 +225,17 @@ function mapRun(row: Row): AcceptanceRun {
     createdAt: text(row.created_at),
     ...(startedAt === undefined ? {} : { startedAt }),
     ...(completedAt === undefined ? {} : { completedAt }),
+  };
+}
+
+function mapLease(row: Row): ResourceLease {
+  return {
+    id: text(row.id),
+    runId: text(row.run_id),
+    resourceType: text(row.resource_type),
+    resourceKey: text(row.resource_key),
+    status: row.status as ResourceLease["status"],
+    expiresAt: text(row.expires_at),
   };
 }
 
@@ -554,5 +581,59 @@ export class SqliteStore {
       payload: JSON.parse(text(row.payload_json)) as Record<string, unknown>,
       createdAt: text(row.created_at),
     }));
+  }
+
+  createLease(lease: ResourceLease): ResourceLease {
+    this.db
+      .prepare(
+        `INSERT INTO resource_leases (id, run_id, resource_type, resource_key, status, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        lease.id,
+        lease.runId,
+        lease.resourceType,
+        lease.resourceKey,
+        lease.status,
+        lease.expiresAt,
+      );
+    return lease;
+  }
+
+  findActiveLease(
+    resourceType: string,
+    resourceKey: string,
+  ): ResourceLease | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM resource_leases
+         WHERE resource_type = ? AND resource_key = ? AND status = 'ACTIVE'`,
+      )
+      .get(resourceType, resourceKey) as Row | undefined;
+    return row ? mapLease(row) : undefined;
+  }
+
+  listLeases(runId: string): ResourceLease[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM resource_leases WHERE run_id = ? ORDER BY resource_type, resource_key",
+        )
+        .all(runId) as Row[]
+    ).map(mapLease);
+  }
+
+  releaseLease(
+    id: string,
+    status: ResourceLease["status"] = "RELEASED",
+  ): ResourceLease {
+    const row = this.db
+      .prepare("SELECT * FROM resource_leases WHERE id = ?")
+      .get(id) as Row | undefined;
+    if (!row) throw new NotFoundError("resource lease", id);
+    this.db
+      .prepare("UPDATE resource_leases SET status = ? WHERE id = ?")
+      .run(status, id);
+    return mapLease({ ...row, status });
   }
 }

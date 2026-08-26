@@ -18,6 +18,24 @@ class FakeGit implements GitClient {
     return "";
   }
 
+  diff(): string {
+    return "";
+  }
+
+  untrackedFiles(): string[] {
+    return [];
+  }
+
+  addDetachedWorktree(): void {}
+
+  removeWorktree(): void {}
+
+  resetHard(): void {}
+
+  cleanUntracked(): void {}
+
+  pruneWorktrees(): void {}
+
   version(): string {
     return "fake-git";
   }
