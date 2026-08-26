@@ -128,7 +128,10 @@ test("orchestrator executes a fake-reviewed run through the deterministic gate",
     assert.equal(executed.gate.decision, "PASS");
     assert.equal(executed.run.status, "COMPLETED_PASS");
     assert.equal(executed.task.status, "ACCEPTED");
-    assert.equal(store.getRun(submitted.run.id).reviewerThreadId, undefined);
+    assert.match(
+      store.getRun(submitted.run.id).reviewerThreadId ?? "",
+      /^[0-9a-f-]{36}$/,
+    );
     const artifactRoot = join(
       home.projects,
       "cap-e2e",

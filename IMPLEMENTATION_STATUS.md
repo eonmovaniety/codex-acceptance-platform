@@ -10,7 +10,7 @@ Attached document: engineering requirements and a staged implementation plan. It
 
 ## Current phase
 
-**Phase 4 — ready to start**
+**Phase 5 — ready to start**
 
 ## Completed in this phase
 
@@ -31,6 +31,8 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Added Evidence Index, Acceptance Matrix, deterministic Quality Gate, and human/infra decision handling.
 - Added fresh-per-Run reviewer sessions with report-persist-before-archive lifecycle.
 - Added `run execute` orchestration for worktree, runtime, verifier, reviewer, matrix, gate, artifact finalization, and safe cleanup.
+- Added structured Failure Package, Fix Request, Impact Analysis, deterministic escalation, and `fix start` CLI flow.
+- Added fail-once/new-commit integration coverage proving old Runs remain immutable and new Runs use fresh reviewer IDs.
 
 ## Phase 0 exit-gate evidence
 
@@ -74,6 +76,16 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Every orchestrated Run receives a fresh reviewer session and persists the report before archive: PASS.
 - Fake-provider end-to-end orchestration reaches `COMPLETED_PASS`, `ACCEPTED`, and finalized artifacts: PASS.
 
+## Phase 4 exit-gate evidence
+
+- `npm test`: PASS, 29 tests.
+- Gate FAIL writes structured failure package and fix request: PASS.
+- First failure escalates as `AUTO_FIX`: PASS.
+- `FIX_REQUESTED` blocks direct resubmission until `beginFix`/`fix start`: PASS by task state machine.
+- New commit creates a distinct Run and distinct reviewer session ID: PASS.
+- Previous failure artifacts remain queryable after the new Run passes: PASS.
+- Impact analysis retains failed/core requirements and `core-smoke`: PASS.
+
 ## Risks and limits
 
 - Runtime support currently targets Node 24 because CAP uses the built-in `node:sqlite` API.
@@ -83,4 +95,4 @@ Attached document: engineering requirements and a staged implementation plan. It
 
 ## Next phase
 
-Phase 4: Failure Package, Fix Request, structured retry history, escalation, and regression retest.
+Phase 5: TestDataManager, fresh database lifecycle, Web/Android adapter contract, visual cases, screenshot capture, pixel diff, and baseline Human Gate.

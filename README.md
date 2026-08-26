@@ -16,6 +16,8 @@ npm test
 npm run acceptance -- --help
 ```
 
+After submitting a contract-bound commit, execute its isolated acceptance Run with `npm run acceptance -- run execute <run-id> --json`. A failed Run writes a Failure Package; move the task to `FIXING` with `npm run acceptance -- fix start <project-id> <task-id>` before submitting a new commit.
+
 The first release uses Node's built-in `node:sqlite` runtime available in Node 24, so the state database does not need a native third-party SQLite binding.
 
 ## Boundaries

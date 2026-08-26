@@ -11,6 +11,7 @@ import { loadAcceptanceContract, loadProjectConfig } from "./config.js";
 import { AcceptanceController } from "./controller.js";
 import { CapError } from "./errors.js";
 import { EvidenceIndexBuilder } from "./evidence.js";
+import { FailurePackageService, ImpactAnalyzer } from "./failure.js";
 import {
   decideGate,
   writeGateDecision,
@@ -190,16 +191,19 @@ export class AcceptanceRunExecutor {
           requirements: contract.requirements,
           verifierResults,
           evidencePaths: [...new Set(evidencePaths)].sort(),
+          priorFailurePaths: this.previousFailurePaths(project, task),
           now: () => this.clock.now(),
         },
         selectedProvider,
       );
-      if (review.session.providerSessionId) {
-        run = this.updateRun(
-          { ...run, reviewerThreadId: review.session.providerSessionId },
-          "ReviewerSessionBound",
-        );
-      }
+      run = this.updateRun(
+        {
+          ...run,
+          reviewerThreadId:
+            review.session.providerSessionId ?? review.session.id,
+        },
+        "ReviewerSessionBound",
+      );
       const evidence = new EvidenceIndexBuilder().write({
         projectId: project.id,
         taskId: task.id,
@@ -227,6 +231,37 @@ export class AcceptanceRunExecutor {
         decision: gate.decision,
         reason_codes: gate.reason_codes,
       });
+      if (gate.decision === "FAIL") {
+        const failure = new FailurePackageService(this.artifacts, () =>
+          this.clock.now(),
+        ).create({
+          run,
+          task: finalTask,
+          contract,
+          matrix,
+          report: review.report,
+          gate,
+        });
+        const dirty = this.worktrees.captureDirtyState(worktree);
+        const impact = new ImpactAnalyzer().analyze({
+          runId: run.id,
+          patch: dirty.patch,
+          contract,
+          failurePackage: failure.failurePackage,
+        });
+        this.artifacts.writeJson(
+          project.id,
+          task.id,
+          run.id,
+          "failure/impact-analysis.json",
+          impact,
+        );
+        this.dependencies.store.appendEvent(run.id, "FailurePackageCreated", {
+          failure_package_path: "failure/failure-package.json",
+          fix_request_path: "failure/fix-request.json",
+          escalation_level: failure.fixRequest.escalation_level,
+        });
+      }
       this.captureAndResetReviewerWorktree(worktree, project, task, run);
       this.artifacts.finalize(project.id, task.id, run.id);
       this.dependencies.store.appendEvent(run.id, "ArtifactsFinalized", {});
@@ -304,6 +339,24 @@ export class AcceptanceRunExecutor {
       });
     }
     return new FakeReviewerProvider();
+  }
+
+  private previousFailurePaths(project: Project, task: Task): string[] {
+    return this.dependencies.store
+      .listRuns(project.id, task.id)
+      .filter((candidate) => candidate.status === "COMPLETED_FAIL")
+      .map((candidate) =>
+        this.artifacts.exists(
+          project.id,
+          task.id,
+          candidate.id,
+          "failure/failure-package.json",
+        )
+          ? `runs/${task.id}/${candidate.id}/failure/failure-package.json`
+          : undefined,
+      )
+      .filter((path): path is string => path !== undefined)
+      .sort();
   }
 
   private updateRunStatus(

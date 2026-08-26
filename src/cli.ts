@@ -40,6 +40,7 @@ Commands:
   task create <project> <id>   Register a task
   acceptance submit            Submit an immutable target commit
   run start|execute|status|logs Manage an acceptance run
+  fix start <project> <task>  Start a Builder fix cycle from FIX_REQUESTED
   findings list <run>          List structured findings
   artifacts open <run>         Show run artifacts
   human list|show|decide       Manage human-gate requests
@@ -134,6 +135,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         return;
       case "run":
         await handleRun(positionals, values, home);
+        return;
+      case "fix":
+        await handleFix(positionals, values, home);
         return;
       case "history":
         await handleHistory(positionals, home);
@@ -447,6 +451,28 @@ async function handleHistory(
   const store = new SqliteStore(databasePath(home));
   try {
     console.log(JSON.stringify(store.listRuns(positionals[0]), null, 2));
+  } finally {
+    store.close();
+  }
+}
+
+async function handleFix(
+  positionals: string[],
+  values: ParsedOptions["values"],
+  home: AcceptanceHomePaths,
+): Promise<void> {
+  if (positionals[0] !== "start" || !positionals[1] || !positionals[2])
+    throw new CapError(
+      "Usage: acceptance fix start <project-id> <task-id>",
+      "ARGUMENT_ERROR",
+    );
+  const store = new SqliteStore(databasePath(home));
+  try {
+    const task = new AcceptanceController({
+      store,
+      git: new CliGitClient(),
+    }).beginFix(positionals[1], positionals[2]);
+    print(task, values.json === true);
   } finally {
     store.close();
   }

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/impact-analysis.schema.json",
+  "title": "Impact analysis",
+  "type": "object",
+  "required": [
+    "version",
+    "run_id",
+    "changed_files",
+    "impacted_requirement_ids",
+    "selected_retests",
+    "reason"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "changed_files": { "type": "array", "items": { "type": "string" } },
+    "impacted_requirement_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "selected_retests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "reason": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}

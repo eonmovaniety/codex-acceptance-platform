@@ -230,6 +230,24 @@ export class AcceptanceController {
     return next;
   }
 
+  beginFix(projectId: string, taskId: string): Task {
+    const task = this.dependencies.store.getTask(projectId, taskId);
+    const next = this.dependencies.store.updateTask({
+      ...task,
+      status: transitionTask(task.status, "FIXING"),
+      updatedAt: this.clock.now(),
+    });
+    const latestRun = this.dependencies.store
+      .listRuns(projectId, taskId)
+      .at(-1);
+    if (latestRun)
+      this.dependencies.store.appendEvent(latestRun.id, "FixStarted", {
+        task_id: taskId,
+        source_run_id: latestRun.id,
+      });
+    return next;
+  }
+
   getProjectOrThrow(id: string): Project {
     const project = this.dependencies.store.findProject(id);
     if (!project) throw new NotFoundError("project", id);

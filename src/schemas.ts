@@ -8,6 +8,8 @@ export type SchemaName =
   | "evidence-index"
   | "acceptance-matrix"
   | "failure-package"
+  | "fix-request"
+  | "impact-analysis"
   | "human-request"
   | "gate-decision"
   | "visual-case";
@@ -362,8 +364,132 @@ export const capSchemas: Record<SchemaName, object> = {
       target_commit: { type: "string" },
       task_id: { type: "string" },
       decision: { const: "FAIL" },
-      failures: { type: "array" },
-      required_retests: { type: "array" },
+      failures: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: [
+            "finding_id",
+            "requirement_id",
+            "severity",
+            "expected",
+            "observed",
+            "reproduction",
+            "evidence",
+            "suspected_areas",
+            "regression_risks",
+            "failure_class",
+          ],
+          properties: {
+            finding_id: { type: "string", minLength: 1 },
+            requirement_id: { type: "string", minLength: 1 },
+            severity: { enum: ["S0", "S1", "S2", "S3", "S4"] },
+            expected: { type: "string", minLength: 1 },
+            observed: { type: "string", minLength: 1 },
+            reproduction: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 1,
+            },
+            evidence: { type: "array", items: { type: "string" } },
+            suspected_areas: { type: "array", items: { type: "string" } },
+            regression_risks: { type: "array", items: { type: "string" } },
+            failure_class: {
+              enum: [
+                "IMPLEMENTATION_FAIL",
+                "TEST_INFRA_FAIL",
+                "SPEC_BLOCKED",
+                "ENVIRONMENT_BLOCKED",
+                "BASELINE_INVALID",
+                "SECURITY_RISK",
+                "REVIEWER_CONFLICT",
+              ],
+            },
+          },
+          additionalProperties: true,
+        },
+      },
+      required_retests: {
+        type: "array",
+        items: { type: "string", minLength: 1 },
+        minItems: 1,
+      },
+    },
+    additionalProperties: true,
+  },
+  "fix-request": {
+    type: "object",
+    required: [
+      "version",
+      "request_id",
+      "task_id",
+      "source_run_id",
+      "source_commit",
+      "status",
+      "failure_package_path",
+      "required_retests",
+      "escalation_level",
+      "attempt",
+      "created_at",
+      "updated_at",
+    ],
+    properties: {
+      version: versionOne,
+      request_id: { type: "string", minLength: 1 },
+      task_id: { type: "string", minLength: 1 },
+      source_run_id: { type: "string", minLength: 1 },
+      source_commit: { type: "string", minLength: 7 },
+      status: {
+        enum: [
+          "OPEN",
+          "IN_PROGRESS",
+          "RESOLVED",
+          "ESCALATED",
+          "HUMAN_REQUIRED",
+        ],
+      },
+      failure_package_path: { type: "string", minLength: 1 },
+      required_retests: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+      },
+      escalation_level: {
+        enum: [
+          "AUTO_FIX",
+          "ROOT_CAUSE_REVIEW",
+          "ARCHITECTURE_REVIEW",
+          "HUMAN_REQUIRED",
+        ],
+      },
+      attempt: { type: "integer", minimum: 1 },
+      created_at: { type: "string", minLength: 1 },
+      updated_at: { type: "string", minLength: 1 },
+    },
+    additionalProperties: true,
+  },
+  "impact-analysis": {
+    type: "object",
+    required: [
+      "version",
+      "run_id",
+      "changed_files",
+      "impacted_requirement_ids",
+      "selected_retests",
+      "reason",
+    ],
+    properties: {
+      version: versionOne,
+      run_id: { type: "string", minLength: 1 },
+      changed_files: { type: "array", items: { type: "string" } },
+      impacted_requirement_ids: { type: "array", items: { type: "string" } },
+      selected_retests: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+      },
+      reason: { type: "string", minLength: 1 },
     },
     additionalProperties: true,
   },

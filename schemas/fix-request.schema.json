@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/fix-request.schema.json",
+  "title": "Fix request",
+  "type": "object",
+  "required": [
+    "version",
+    "request_id",
+    "task_id",
+    "source_run_id",
+    "source_commit",
+    "status",
+    "failure_package_path",
+    "required_retests",
+    "escalation_level",
+    "attempt",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "source_run_id": { "type": "string", "minLength": 1 },
+    "source_commit": { "type": "string", "minLength": 7 },
+    "status": {
+      "enum": ["OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED", "HUMAN_REQUIRED"]
+    },
+    "failure_package_path": { "type": "string", "minLength": 1 },
+    "required_retests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "escalation_level": {
+      "enum": [
+        "AUTO_FIX",
+        "ROOT_CAUSE_REVIEW",
+        "ARCHITECTURE_REVIEW",
+        "HUMAN_REQUIRED"
+      ]
+    },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}

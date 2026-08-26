@@ -18,8 +18,60 @@
     "target_commit": { "type": "string" },
     "task_id": { "type": "string" },
     "decision": { "const": "FAIL" },
-    "failures": { "type": "array" },
-    "required_retests": { "type": "array" }
+    "failures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "finding_id",
+          "requirement_id",
+          "severity",
+          "expected",
+          "observed",
+          "reproduction",
+          "evidence",
+          "suspected_areas",
+          "regression_risks",
+          "failure_class"
+        ],
+        "properties": {
+          "finding_id": { "type": "string", "minLength": 1 },
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["S0", "S1", "S2", "S3", "S4"] },
+          "expected": { "type": "string", "minLength": 1 },
+          "observed": { "type": "string", "minLength": 1 },
+          "reproduction": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "suspected_areas": { "type": "array", "items": { "type": "string" } },
+          "regression_risks": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "failure_class": {
+            "enum": [
+              "IMPLEMENTATION_FAIL",
+              "TEST_INFRA_FAIL",
+              "SPEC_BLOCKED",
+              "ENVIRONMENT_BLOCKED",
+              "BASELINE_INVALID",
+              "SECURITY_RISK",
+              "REVIEWER_CONFLICT"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required_retests": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    }
   },
   "additionalProperties": true
 }
