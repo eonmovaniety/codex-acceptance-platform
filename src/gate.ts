@@ -1,7 +1,12 @@
 import type { RunDecision, EvidenceLevel } from "./domain.js";
 import { aggregateVerifierResults, type VerifierResult } from "./verifier.js";
-import { evidenceRank, type ReviewerReport } from "./review.js";
+import {
+  evidenceRank,
+  type ReviewerFinding,
+  type ReviewerReport,
+} from "./review.js";
 import type { AcceptanceMatrix } from "./matrix.js";
+import { validateDocument } from "./validation.js";
 
 export interface GatePolicy {
   version: 1;
@@ -73,6 +78,7 @@ export interface GateInput {
   verifierResults: VerifierResult[];
   policy?: GatePolicy;
   hasInfraFailure?: boolean;
+  additionalFindings?: ReviewerFinding[];
   humanTriggers?: string[];
   now?: () => string;
 }
@@ -86,6 +92,23 @@ export function decideGate(input: GateInput): GateDecision {
 
   if (input.hasInfraFailure || verifierResult === "BLOCKED") {
     reasons.push("INFRA_FAILURE");
+    return decision(
+      "HUMAN",
+      reasons,
+      input,
+      verifierResult,
+      severityCounts,
+      humanTriggers,
+    );
+  }
+
+  if (
+    humanTriggers.includes("REVIEWER_CONFLICT") ||
+    input.report.requested_human_decisions.some(
+      (request) => request.reason === "reviewer_conflict",
+    )
+  ) {
+    reasons.push("REVIEWER_CONFLICT");
     return decision(
       "HUMAN",
       reasons,
@@ -190,6 +213,7 @@ export function writeGateDecision(
   taskId: string,
   gate: GateDecision,
 ): string {
+  validateDocument<GateDecision>("gate-decision", gate);
   return artifacts.writeJson(
     projectId,
     taskId,
@@ -229,7 +253,11 @@ function countSeverities(input: GateInput): Record<string, number> & {
   S2_CORE: number;
 } {
   const counts = { S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S2_CORE: 0 };
-  for (const finding of input.report.findings) {
+  const findings = [
+    ...input.report.findings,
+    ...(input.additionalFindings ?? []),
+  ];
+  for (const finding of findings) {
     counts[finding.severity] += 1;
     if (finding.severity === "S2") {
       const requirement = input.matrix.requirements.find(
@@ -240,7 +268,7 @@ function countSeverities(input: GateInput): Record<string, number> & {
   }
   for (const requirement of input.matrix.requirements) {
     if (!requirement.severity) continue;
-    const alreadyCounted = input.report.findings.some(
+    const alreadyCounted = findings.some(
       (finding) =>
         finding.requirement_id === requirement.id &&
         finding.severity === requirement.severity,

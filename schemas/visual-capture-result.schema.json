@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/visual-capture-result.schema.json",
+  "title": "Visual capture result",
+  "type": "object",
+  "required": [
+    "screenshots",
+    "human_triggers",
+    "baseline_requests",
+    "audit_results",
+    "audit_findings"
+  ],
+  "properties": {
+    "screenshots": { "type": "array" },
+    "human_triggers": { "type": "array", "items": { "type": "string" } },
+    "baseline_requests": { "type": "array" },
+    "audit_results": { "type": "array" },
+    "audit_findings": { "type": "array" }
+  },
+  "additionalProperties": true
+}

@@ -70,6 +70,34 @@ test("visual capture covers four states and is pixel-stable for the same inputs"
   await rm(root, { recursive: true, force: true });
 });
 
+test("visual case audit findings are emitted for the Gate", async () => {
+  const root = await mkdtemp(
+    join(process.cwd(), ".test-visual-audit-pipeline-"),
+  );
+  const artifacts = new ArtifactStore(
+    resolveAcceptanceHome(join(root, "home")),
+  );
+  const result = new ScreenshotCaptureService(artifacts).captureCase({
+    projectId: "project",
+    taskId: "TASK-001",
+    runId: "RUN-AUDIT",
+    testDataVersion: "v1",
+    visualCase: {
+      ...visualCase,
+      audit: {
+        expected_tokens: { "color.primary": "#000000" },
+        observed_tokens: { "color.primary": "#ffffff" },
+        requirement_id: "AC-CORE",
+      },
+    },
+    adapter: new DeterministicVisualAdapter("web"),
+  });
+  assert.equal(result.audit_results[0]?.result, "FAIL");
+  assert.equal(result.audit_findings[0]?.requirement_id, "AC-CORE");
+  assert.equal(result.audit_findings[0]?.severity, "S2");
+  await rm(root, { recursive: true, force: true });
+});
+
 test("baseline changes create a Human request and never overwrite without approval", async () => {
   const root = await mkdtemp(join(process.cwd(), ".test-baseline-"));
   const home = resolveAcceptanceHome(join(root, "home"));
@@ -87,6 +115,8 @@ test("baseline changes create a Human request and never overwrite without approv
   });
   const missing = baselineStore.compare({
     projectId: "project",
+    taskId: "TASK-001",
+    runId: "RUN-001",
     frame: frameV1,
     candidateArtifact: "visual/settings/empty/phone.rgba",
   });
@@ -98,6 +128,8 @@ test("baseline changes create a Human request and never overwrite without approv
   assert.equal(
     baselineStore.compare({
       projectId: "project",
+      taskId: "TASK-001",
+      runId: "RUN-001",
       frame: frameV1,
       candidateArtifact: "visual/settings/empty/phone.rgba",
     }).status,
@@ -113,6 +145,8 @@ test("baseline changes create a Human request and never overwrite without approv
   });
   const changed = baselineStore.compare({
     projectId: "project",
+    taskId: "TASK-001",
+    runId: "RUN-002",
     frame: frameV2,
     candidateArtifact: "visual/settings/empty/phone.rgba",
   });

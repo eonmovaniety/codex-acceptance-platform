@@ -1,0 +1,26 @@
+version: 1
+project_id: cap-dogfood
+display_name: CAP dogfood fixture
+repository:
+  base_branch: main
+  require_clean_submission: true
+commands:
+  build:
+    - node --version
+  unit:
+    - node --version
+test_data:
+  version: dogfood-v1
+reviewer:
+  provider: fake
+  roles:
+    - functional
+    - security
+visual:
+  enabled: true
+  platform: web
+  baseline: false
+  cases:
+    - visual/sample.yaml
+risk:
+  sampling_percent: 0

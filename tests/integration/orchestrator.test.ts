@@ -115,6 +115,9 @@ test("orchestrator executes a fake-reviewed run through the deterministic gate",
       join(repo, ".acceptance", "contract.yaml"),
       target,
     );
+    const started = controller.startRun(submitted.run.id);
+    assert.equal(started.status, "VALIDATING");
+    assert.ok(started.startedAt);
     const executed = await new AcceptanceRunExecutor({
       store,
       home,

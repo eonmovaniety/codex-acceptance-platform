@@ -10,7 +10,7 @@ Attached document: engineering requirements and a staged implementation plan. It
 
 ## Current phase
 
-**Phase 6 — ready to start**
+**Completed — Phase 7 MVP**
 
 ## Completed in this phase
 
@@ -36,6 +36,11 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Added fresh TestDataManager layers (`base`, `scenario`, `edge`, `visual`) with reset/seed lifecycle markers.
 - Added a common Web/Android visual adapter contract, deterministic screenshot fixture capture, exact PixelDiff, baseline requests, and explicit human-only baseline approval.
 - Added visual execution integration to `run execute` when project visual cases are enabled.
+- Added multi-role Reviewer sessions, aggregate reports, conflict findings, and Human escalation.
+- Added R0-R3 risk assessment, A0-A4 automation ceilings, deterministic sampling, and adversarial scenarios.
+- Added optional Visual Case token/geometry audits, `visual/audit.json`, and Gate evaluation of their structured S2 findings.
+- Added a read-only local Dashboard API and browser view for projects, Runs, timelines, coverage, artifacts, and Human requests.
+- Added a non-destructive retention planner and a GitHub Actions acceptance template.
 
 ## Phase 0 exit-gate evidence
 
@@ -99,13 +104,25 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Baseline missing/change produces a pending Human request without overwriting the baseline: PASS.
 - Explicit baseline approval is the only update path covered by tests: PASS.
 
+## Phase 6-7 exit-gate evidence
+
+- `npm run build`: PASS.
+- `npm run lint`: PASS.
+- `npm run format:check`: PASS.
+- `npm test`: PASS, 39 tests.
+- Multi-role Reviewer aggregation and conflict-to-HUMAN behavior: PASS.
+- R0-R3 to A0-A4 automation policy, deterministic sampling, and adversarial checks: PASS.
+- Dashboard HTTP health, project, Run timeline, coverage, artifact, Human, and retention routes: PASS.
+- Dashboard and artifact paths remain read-only; retention produces a plan and does not delete data: PASS.
+
 ## Risks and limits
 
 - Runtime support currently targets Node 24 because CAP uses the built-in `node:sqlite` API.
 - The real Codex provider is implemented but not invoked in this build; live CLI credentials and target-project acceptance remain operator-controlled.
-- `run execute` uses deterministic fixture capture for enabled visual cases; it does not yet implement platform-specific Web/Android device/browser capture or perceptual image diff.
+- `run execute` uses deterministic fixture capture for enabled visual cases; platform-specific Web/Android device/browser capture and perceptual image diff remain adapter work.
+- The Dashboard is local loopback HTTP without authentication and is intended for an operator workstation, not direct production exposure.
 - No external target project, device, production service, or external Codex credential is touched by this bootstrap.
 
 ## Next phase
 
-Phase 6: multiple Reviewer roles, conflict handling, visual geometry/token checks, adversarial scenarios, risk/automation policy, sampling, and release gates.
+No further implementation phase is required for this isolated MVP. Real target-project adapters, browser/device capture, live Codex invocation, and production deployment remain operator-scoped acceptance work.

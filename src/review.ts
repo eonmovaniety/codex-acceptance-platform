@@ -466,7 +466,11 @@ export class ReviewerSessionManager {
     return updated;
   }
 
-  persistReport(sessionId: string, report: ReviewerReport): ReviewerSession {
+  persistReport(
+    sessionId: string,
+    report: ReviewerReport,
+    relativePath = "reviewer/report.json",
+  ): ReviewerSession {
     const session = this.get(sessionId);
     if (session.status !== "ACTIVE")
       throw new CapError(
@@ -478,7 +482,7 @@ export class ReviewerSessionManager {
       session.projectId,
       session.taskId,
       session.runId,
-      "reviewer/report.json",
+      relativePath,
       report,
     );
     const updated: ReviewerSession = {

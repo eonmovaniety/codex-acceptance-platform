@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/risk-assessment.schema.json",
+  "title": "Risk assessment",
+  "type": "object",
+  "required": ["risk_level", "automation_level", "human_triggers", "sampled"],
+  "properties": {
+    "risk_level": { "enum": ["R0", "R1", "R2", "R3"] },
+    "automation_level": { "enum": ["A0", "A1", "A2", "A3", "A4"] },
+    "human_triggers": { "type": "array", "items": { "type": "string" } },
+    "sampled": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

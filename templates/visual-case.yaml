@@ -1,0 +1,13 @@
+version: 1
+case_id: sample-screen
+route: /sample
+states:
+  - empty
+  - loading
+  - error
+  - max-content
+viewports:
+  - id: phone
+    width: 390
+    height: 844
+    dpr: 1

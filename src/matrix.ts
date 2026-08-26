@@ -10,6 +10,7 @@ import {
   type ReviewerReport,
   type Severity,
 } from "./review.js";
+import { validateDocument } from "./validation.js";
 
 export interface MatrixRequirement {
   id: string;
@@ -123,6 +124,7 @@ export function writeAcceptanceMatrix(
   taskId: string,
   matrix: AcceptanceMatrix,
 ): string {
+  validateDocument<AcceptanceMatrix>("acceptance-matrix", matrix);
   return artifacts.writeJson(
     projectId,
     taskId,

@@ -13,6 +13,9 @@ export type SchemaName =
   | "human-request"
   | "baseline-request"
   | "test-data-manifest"
+  | "visual-capture-result"
+  | "risk-assessment"
+  | "gate-policy"
   | "gate-decision"
   | "visual-case";
 
@@ -142,6 +145,35 @@ export const capSchemas: Record<SchemaName, object> = {
         },
         additionalProperties: true,
       },
+      reviewer: {
+        type: "object",
+        properties: {
+          provider: { type: "string" },
+          roles: { type: "array", items: { type: "string" } },
+          fresh_thread_per_run: { type: "boolean" },
+        },
+        additionalProperties: true,
+      },
+      visual: {
+        type: "object",
+        properties: {
+          enabled: { type: "boolean" },
+          policy: { type: "string" },
+          cases: { type: "array", items: { type: "string" } },
+          platform: { enum: ["web", "android"] },
+          baseline: { type: "boolean" },
+        },
+        additionalProperties: true,
+      },
+      risk: {
+        type: "object",
+        properties: {
+          security_sensitive: { type: "boolean" },
+          release_requested: { type: "boolean" },
+          sampling_percent: { type: "number", minimum: 0, maximum: 100 },
+        },
+        additionalProperties: true,
+      },
     },
     additionalProperties: true,
   },
@@ -222,6 +254,7 @@ export const capSchemas: Record<SchemaName, object> = {
       "version",
       "run_id",
       "verifier",
+      "stage",
       "result",
       "started_at",
       "completed_at",
@@ -232,11 +265,27 @@ export const capSchemas: Record<SchemaName, object> = {
       version: versionOne,
       run_id: { type: "string" },
       verifier: { type: "string" },
+      stage: {
+        enum: ["setup", "build", "lint", "unit", "integration", "e2e"],
+      },
       result: { enum: ["PASS", "FAIL", "BLOCKED", "NOT_TESTED"] },
       started_at: { type: "string" },
       completed_at: { type: "string" },
       exit_code: { type: ["integer", "null"] },
-      evidence: { type: "array" },
+      evidence: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["kind", "path"],
+          properties: {
+            kind: { type: "string" },
+            path: { type: "string", minLength: 1 },
+            level: { enum: ["E1", "E2", "E3", "E4", "E5"] },
+          },
+          additionalProperties: true,
+        },
+      },
+      warnings: { type: "array", items: { type: "string" } },
     },
     additionalProperties: true,
   },
@@ -514,9 +563,12 @@ export const capSchemas: Record<SchemaName, object> = {
       "version",
       "request_id",
       "project_id",
+      "task_id",
+      "run_id",
       "case_id",
       "state",
       "viewport_id",
+      "platform",
       "reason",
       "candidate_artifact",
       "baseline_path",
@@ -530,15 +582,18 @@ export const capSchemas: Record<SchemaName, object> = {
       version: versionOne,
       request_id: { type: "string", minLength: 1 },
       project_id: { type: "string", minLength: 1 },
+      task_id: { type: "string", minLength: 1 },
+      run_id: { type: "string", minLength: 1 },
       case_id: { type: "string", minLength: 1 },
       state: { type: "string", minLength: 1 },
       viewport_id: { type: "string", minLength: 1 },
+      platform: { enum: ["web", "android"] },
       reason: { enum: ["MISSING_BASELINE", "BASELINE_CHANGE"] },
       candidate_artifact: { type: "string", minLength: 1 },
       baseline_path: { type: "string", minLength: 1 },
       width: { type: "integer", minimum: 1 },
       height: { type: "integer", minimum: 1 },
-      status: { enum: ["PENDING", "APPROVED", "REJECTED"] },
+      status: { enum: ["PENDING", "APPROVED", "REJECTED", "DEFERRED"] },
       created_at: { type: "string", minLength: 1 },
       updated_at: { type: "string", minLength: 1 },
     },
@@ -565,6 +620,97 @@ export const capSchemas: Record<SchemaName, object> = {
       fresh_database: { type: "boolean" },
       stages: { type: "array" },
       marker_path: { type: "string", minLength: 1 },
+    },
+    additionalProperties: true,
+  },
+  "visual-capture-result": {
+    type: "object",
+    required: [
+      "screenshots",
+      "human_triggers",
+      "baseline_requests",
+      "audit_results",
+      "audit_findings",
+    ],
+    properties: {
+      screenshots: { type: "array" },
+      human_triggers: { type: "array", items: { type: "string" } },
+      baseline_requests: { type: "array" },
+      audit_results: { type: "array" },
+      audit_findings: { type: "array" },
+    },
+    additionalProperties: true,
+  },
+  "risk-assessment": {
+    type: "object",
+    required: ["risk_level", "automation_level", "human_triggers", "sampled"],
+    properties: {
+      risk_level: { enum: ["R0", "R1", "R2", "R3"] },
+      automation_level: { enum: ["A0", "A1", "A2", "A3", "A4"] },
+      human_triggers: { type: "array", items: { type: "string" } },
+      sampled: { type: "boolean" },
+    },
+    additionalProperties: true,
+  },
+  "gate-policy": {
+    type: "object",
+    required: [
+      "version",
+      "mandatory_verifiers",
+      "severity",
+      "requirements",
+      "evidence",
+      "visual",
+      "release",
+    ],
+    properties: {
+      version: versionOne,
+      mandatory_verifiers: { type: "array", items: { type: "string" } },
+      severity: {
+        type: "object",
+        required: ["S0_max", "S1_max", "S2_max_core", "S2_max_total"],
+        properties: {
+          S0_max: { type: "integer", minimum: 0 },
+          S1_max: { type: "integer", minimum: 0 },
+          S2_max_core: { type: "integer", minimum: 0 },
+          S2_max_total: { type: "integer", minimum: 0 },
+        },
+        additionalProperties: true,
+      },
+      requirements: {
+        type: "object",
+        required: [
+          "core_must_pass",
+          "not_tested_core_allowed",
+          "blocked_core_allowed",
+        ],
+        properties: {
+          core_must_pass: { type: "boolean" },
+          not_tested_core_allowed: { type: "boolean" },
+          blocked_core_allowed: { type: "boolean" },
+        },
+        additionalProperties: true,
+      },
+      evidence: {
+        type: "object",
+        required: ["enforce_contract_minimum"],
+        properties: { enforce_contract_minimum: { type: "boolean" } },
+        additionalProperties: true,
+      },
+      visual: {
+        type: "object",
+        required: ["baseline_change_requires_human"],
+        properties: {
+          baseline_change_requires_human: { type: "boolean" },
+        },
+        additionalProperties: true,
+      },
+      release: {
+        type: "object",
+        required: ["requires_human"],
+        properties: { requires_human: { type: "boolean" } },
+        additionalProperties: true,
+      },
     },
     additionalProperties: true,
   },
@@ -596,6 +742,19 @@ export const capSchemas: Record<SchemaName, object> = {
       version: versionOne,
       case_id: { type: "string", minLength: 1 },
       route: { type: "string" },
+      requirement_id: { type: "string", minLength: 1 },
+      audit: {
+        type: "object",
+        required: ["expected_tokens", "observed_tokens"],
+        properties: {
+          expected_tokens: { type: "object" },
+          observed_tokens: { type: "object" },
+          expected_geometry: { type: "object" },
+          observed_geometry: { type: "object" },
+          requirement_id: { type: "string", minLength: 1 },
+        },
+        additionalProperties: true,
+      },
       states: {
         type: "array",
         minItems: 1,

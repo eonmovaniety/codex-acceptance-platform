@@ -1,0 +1,14 @@
+version: 1
+contract_id: cap-dogfood-contract
+task_id: TASK-DOGFOOD
+title: CAP dogfood acceptance
+risk_level: R1
+requirements:
+  - id: AC-DOGFOOD-CORE
+    title: Deterministic acceptance pipeline completes
+    criticality: core
+    verification:
+      modes:
+        - build
+        - unit
+      required_evidence: E2

@@ -183,6 +183,28 @@ test("infrastructure failure and human trigger never become PASS", () => {
   assert.deepEqual(human.details.human_triggers, ["BASELINE_CHANGE"]);
 });
 
+test("visual audit findings are evaluated by the deterministic Gate", () => {
+  const currentReport = report();
+  const matrix = buildAcceptanceMatrix(contract, currentReport, evidence(true));
+  const decision = decideGate({
+    matrix,
+    report: currentReport,
+    verifierResults,
+    additionalFindings: [
+      {
+        id: "VISUAL-geometry-card",
+        requirement_id: "AC-CORE",
+        severity: "S2",
+        title: "Geometry mismatch",
+        description: "The card is wider than the contract allows",
+        evidence_paths: [],
+      },
+    ],
+  });
+  assert.equal(decision.decision, "FAIL");
+  assert.ok(decision.reason_codes.includes("MAJOR_FINDING_LIMIT"));
+});
+
 test("evidence index records actual artifact existence", async () => {
   const root = await mkdtemp(join(process.cwd(), ".test-gate-"));
   const artifacts = new ArtifactStore(

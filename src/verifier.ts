@@ -2,6 +2,7 @@ import type { ProjectConfig } from "./domain.js";
 import type { ArtifactStore } from "./artifacts.js";
 import type { CommandResult, CommandRunner } from "./runner.js";
 import { CapError } from "./errors.js";
+import { validateDocument } from "./validation.js";
 
 export type VerifierResultValue = "PASS" | "FAIL" | "BLOCKED" | "NOT_TESTED";
 export type VerifierStage =
@@ -66,12 +67,15 @@ export class GenericCommandAdapter {
       const commands = context.config.commands?.[stage] ?? [];
       if (halted || commands.length === 0) {
         results.push(
-          this.notTested(
-            context,
-            stage,
-            halted
-              ? "Skipped after a previous verifier failure"
-              : "No command configured",
+          validateDocument<VerifierResult>(
+            "verifier-result",
+            this.notTested(
+              context,
+              stage,
+              halted
+                ? "Skipped after a previous verifier failure"
+                : "No command configured",
+            ),
           ),
         );
         continue;
@@ -112,17 +116,13 @@ export class GenericCommandAdapter {
         const relativeStdout = relativeArtifact(context, stdoutPath);
         const relativeStderr = relativeArtifact(context, stderrPath);
         const relativeResult = `${base}.result.json`;
-        const verifierResult = this.toResult(
-          context,
-          stage,
-          startedAt,
-          command,
-          result,
-          [
+        const verifierResult = validateDocument<VerifierResult>(
+          "verifier-result",
+          this.toResult(context, stage, startedAt, command, result, [
             { kind: "log", path: relativeStdout, level: "E2" },
             { kind: "log", path: relativeStderr, level: "E2" },
             { kind: "command-result", path: relativeResult, level: "E2" },
-          ],
+          ]),
         );
         context.artifacts.writeJson(
           context.projectId,

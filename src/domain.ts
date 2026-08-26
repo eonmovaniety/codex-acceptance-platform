@@ -68,6 +68,7 @@ export interface ProjectConfig {
   };
   reviewer?: {
     provider?: "fake" | "codex" | string;
+    roles?: string[];
     mode?: "exec" | "review" | string;
     fresh_thread_per_run?: boolean;
     sandbox?: "read-only" | "workspace-write" | string;
@@ -82,6 +83,11 @@ export interface ProjectConfig {
     cases?: string[];
     platform?: "web" | "android";
     baseline?: boolean;
+  };
+  risk?: {
+    security_sensitive?: boolean;
+    release_requested?: boolean;
+    sampling_percent?: number;
   };
   gate?: {
     policy?: string;

@@ -7,6 +7,7 @@ import type {
   Task,
 } from "./domain.js";
 import { dirname, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { ArtifactStore } from "./artifacts.js";
 import {
   loadAcceptanceContract,
@@ -28,6 +29,7 @@ import {
   writeAcceptanceMatrix,
   type AcceptanceMatrix,
 } from "./matrix.js";
+import { MultiReviewerEngine, type ReviewerRole } from "./multi-review.js";
 import type { AcceptanceHomePaths } from "./paths.js";
 import {
   CodexCliReviewerProvider,
@@ -35,6 +37,7 @@ import {
   ReviewerService,
   ReviewerSessionManager,
   type ReviewerProvider,
+  type ReviewerReport,
 } from "./review.js";
 import { LocalCommandRunner, type CommandRunner } from "./runner.js";
 import { SqliteStore, systemClock, type Clock } from "./storage.js";
@@ -43,6 +46,13 @@ import { GenericCommandAdapter, type VerifierResult } from "./verifier.js";
 import { CliGitClient, type GitClient } from "./git.js";
 import { RuntimeManager, type RuntimeRecord } from "./runtime.js";
 import { TestDataManager } from "./test-data.js";
+import { validateDocument } from "./validation.js";
+import {
+  adversarialScenarios,
+  assessRisk,
+  defaultRiskPolicy,
+  type RiskAssessment,
+} from "./risk.js";
 import {
   BaselineStore,
   DeterministicVisualAdapter,
@@ -106,7 +116,7 @@ export class AcceptanceRunExecutor {
     provider?: ReviewerProvider,
   ): Promise<RunExecutionResult> {
     let run = this.dependencies.store.getRun(runId);
-    if (run.status !== "CREATED") {
+    if (run.status !== "CREATED" && run.status !== "VALIDATING") {
       throw new CapError(
         `Run '${runId}' is not executable from status ${run.status}`,
         "RUN_NOT_EXECUTABLE",
@@ -134,7 +144,7 @@ export class AcceptanceRunExecutor {
         "CONTRACT_TASK_MISMATCH",
       );
     this.artifacts.ensureRun(project.id, task.id, run.id);
-    this.artifacts.writeJson(project.id, task.id, run.id, "run/manifest.json", {
+    const runManifest = {
       version: 1,
       run_id: run.id,
       project_id: project.id,
@@ -145,13 +155,22 @@ export class AcceptanceRunExecutor {
       gate_policy_version: run.gatePolicyVersion,
       created_at: run.createdAt,
       immutable: true,
-    });
+    };
+    validateDocument("run-manifest", runManifest);
+    this.artifacts.writeJson(
+      project.id,
+      task.id,
+      run.id,
+      "run/manifest.json",
+      runManifest,
+    );
 
     let worktree: WorktreeRecord | undefined;
     let runtime: RuntimeRecord | undefined;
     let verifierResults: VerifierResult[] = [];
     try {
-      run = this.updateRunStatus(run, "VALIDATING", "RunValidating");
+      if (run.status === "CREATED")
+        run = this.updateRunStatus(run, "VALIDATING", "RunValidating");
       worktree = this.worktrees.create(
         project.id,
         run.id,
@@ -173,6 +192,7 @@ export class AcceptanceRunExecutor {
         runner: this.commandRunner,
         now: () => this.clock.now(),
       });
+      validateDocument("test-data-manifest", testData);
       this.artifacts.writeJson(
         project.id,
         task.id,
@@ -197,39 +217,73 @@ export class AcceptanceRunExecutor {
         now: () => this.clock.now(),
       });
       const visual = await this.runVisualChecks(project, task, run, config);
+      const risk = this.runRiskChecks(project, task, run, config);
       const evidencePaths = [
         "verifier/summary.json",
         ...verifierResults.flatMap((result) =>
           result.evidence.map((entry) => entry.path),
         ),
         ...visual.screenshots.map((screenshot) => screenshot.artifact_path),
+        ...(visual.audit_results.length > 0 ? ["visual/audit.json"] : []),
       ];
       run = this.updateRunStatus(run, "REVIEWING", "RunReviewing");
       const selectedProvider = provider ?? this.createProvider(config);
       const sessionManager = new ReviewerSessionManager(this.artifacts, () =>
         this.clock.now(),
       );
-      const review = new ReviewerService(sessionManager).review(
-        {
-          runId: run.id,
-          projectId: project.id,
-          taskId: task.id,
-          targetCommit: run.targetCommit,
-          worktreePath: worktree.path,
-          contract,
-          requirements: contract.requirements,
-          verifierResults,
-          evidencePaths: [...new Set(evidencePaths)].sort(),
-          priorFailurePaths: this.previousFailurePaths(project, task),
-          now: () => this.clock.now(),
-        },
-        selectedProvider,
-      );
+      const reviewContext = {
+        runId: run.id,
+        projectId: project.id,
+        taskId: task.id,
+        targetCommit: run.targetCommit,
+        worktreePath: worktree.path,
+        contract,
+        requirements: contract.requirements,
+        verifierResults,
+        evidencePaths: [...new Set(evidencePaths)].sort(),
+        priorFailurePaths: this.previousFailurePaths(project, task),
+        now: () => this.clock.now(),
+      };
+      let reviewReport: ReviewerReport;
+      let reviewerSessionId: string;
+      let reviewerConflicts: string[] = [];
+      const configuredRoles = reviewerRoles(config);
+      if (configuredRoles.length > 0) {
+        const multi = new MultiReviewerEngine(
+          sessionManager,
+          this.artifacts,
+        ).run(
+          reviewContext,
+          configuredRoles.map((role) => ({
+            role,
+            provider: provider ?? this.createProvider(config),
+          })),
+        );
+        reviewReport = multi.report;
+        reviewerSessionId =
+          multi.sessions[0]?.providerSessionId ?? multi.sessions[0]?.id ?? "";
+        reviewerConflicts = multi.conflicts.map((conflict) => conflict.id);
+        if (reviewerConflicts.length > 0)
+          this.artifacts.writeJson(
+            project.id,
+            task.id,
+            run.id,
+            "reviewer/conflicts.json",
+            multi.conflicts,
+          );
+      } else {
+        const review = new ReviewerService(sessionManager).review(
+          reviewContext,
+          selectedProvider,
+        );
+        reviewReport = review.report;
+        reviewerSessionId =
+          review.session.providerSessionId ?? review.session.id;
+      }
       run = this.updateRun(
         {
           ...run,
-          reviewerThreadId:
-            review.session.providerSessionId ?? review.session.id,
+          reviewerThreadId: reviewerSessionId,
         },
         "ReviewerSessionBound",
       );
@@ -239,20 +293,23 @@ export class AcceptanceRunExecutor {
         runId: run.id,
         artifacts: this.artifacts,
         verifierResults,
-        reviewerReport: review.report,
+        reviewerReport: reviewReport,
       });
       run = this.updateRunStatus(run, "GATING", "RunGating");
-      const matrix = buildAcceptanceMatrix(contract, review.report, evidence);
+      const matrix = buildAcceptanceMatrix(contract, reviewReport, evidence);
       writeAcceptanceMatrix(this.artifacts, project.id, task.id, matrix);
-      const configuredPolicy = gatePolicy(config);
+      const configuredPolicy = gatePolicy(config, project.configPath);
       const gate = decideGate({
         matrix,
-        report: review.report,
+        report: reviewReport,
         verifierResults,
         ...(configuredPolicy ? { policy: configuredPolicy } : {}),
+        additionalFindings: visual.audit_findings,
         humanTriggers: [
           ...(config.human_gates ?? []),
           ...visual.human_triggers,
+          ...risk.human_triggers,
+          ...(reviewerConflicts.length > 0 ? ["REVIEWER_CONFLICT"] : []),
         ],
         now: () => this.clock.now(),
       });
@@ -271,7 +328,7 @@ export class AcceptanceRunExecutor {
           task: finalTask,
           contract,
           matrix,
-          report: review.report,
+          report: reviewReport,
           gate,
         });
         const dirty = this.worktrees.captureDirtyState(worktree);
@@ -385,6 +442,8 @@ export class AcceptanceRunExecutor {
         screenshots: [],
         human_triggers: [],
         baseline_requests: [],
+        audit_results: [],
+        audit_findings: [],
       };
     const visualCases = await Promise.all(
       visualConfig.cases.map((path) =>
@@ -422,7 +481,14 @@ export class AcceptanceRunExecutor {
       baseline_requests: captures.flatMap(
         (captureResult) => captureResult.baseline_requests,
       ),
+      audit_results: captures.flatMap(
+        (captureResult) => captureResult.audit_results,
+      ),
+      audit_findings: captures.flatMap(
+        (captureResult) => captureResult.audit_findings,
+      ),
     };
+    validateDocument("visual-capture-result", result);
     this.artifacts.writeJson(
       project.id,
       task.id,
@@ -438,7 +504,54 @@ export class AcceptanceRunExecutor {
         "visual/baseline-requests.json",
         result.baseline_requests,
       );
+    if (result.audit_results.length > 0)
+      this.artifacts.writeJson(
+        project.id,
+        task.id,
+        run.id,
+        "visual/audit.json",
+        {
+          version: 1,
+          results: result.audit_results,
+          findings: result.audit_findings,
+        },
+      );
     return result;
+  }
+
+  private runRiskChecks(
+    project: Project,
+    task: Task,
+    run: AcceptanceRun,
+    config: ProjectConfig,
+  ): RiskAssessment {
+    const policy = {
+      ...defaultRiskPolicy,
+      sampling_percent: config.risk?.sampling_percent ?? 0,
+    };
+    const assessment = assessRisk({
+      riskLevel: task.riskLevel,
+      runId: run.id,
+      policy,
+      ...(config.risk?.security_sensitive ? { securitySensitive: true } : {}),
+      ...(config.risk?.release_requested ? { releaseRequested: true } : {}),
+    });
+    validateDocument("risk-assessment", assessment);
+    this.artifacts.writeJson(
+      project.id,
+      task.id,
+      run.id,
+      "risk/assessment.json",
+      assessment,
+    );
+    this.artifacts.writeJson(
+      project.id,
+      task.id,
+      run.id,
+      "risk/adversarial-scenarios.json",
+      adversarialScenarios(task.riskLevel),
+    );
+    return assessment;
   }
 
   private previousFailurePaths(project: Project, task: Task): string[] {
@@ -469,6 +582,9 @@ export class AcceptanceRunExecutor {
     const next = this.dependencies.store.updateRun({
       ...run,
       status: nextStatus,
+      ...(status === "VALIDATING" && !run.startedAt
+        ? { startedAt: this.clock.now() }
+        : {}),
     });
     this.dependencies.store.appendEvent(run.id, eventType, payload);
     return next;
@@ -539,14 +655,44 @@ export class AcceptanceRunExecutor {
   }
 }
 
-function gatePolicy(config: ProjectConfig): GatePolicy | undefined {
+function gatePolicy(
+  config: ProjectConfig,
+  projectConfigPath: string,
+): GatePolicy | undefined {
   if (!config.gate?.policy) return undefined;
   try {
-    return JSON.parse(readFileSync(config.gate.policy, "utf8")) as GatePolicy;
+    return validateDocument<GatePolicy>(
+      "gate-policy",
+      parseYaml(
+        readFileSync(
+          resolve(dirname(projectConfigPath), config.gate.policy),
+          "utf8",
+        ),
+      ),
+    );
   } catch (error) {
     throw new CapError(
       `Gate policy could not be loaded: ${config.gate.policy}: ${error instanceof Error ? error.message : String(error)}`,
       "GATE_POLICY_INVALID",
     );
   }
+}
+
+function reviewerRoles(config: ProjectConfig): ReviewerRole[] {
+  const values = config.reviewer?.roles ?? [];
+  const allowed: ReviewerRole[] = [
+    "functional",
+    "visual",
+    "security",
+    "architecture",
+    "test-gap",
+  ];
+  for (const value of values) {
+    if (!allowed.includes(value as ReviewerRole))
+      throw new CapError(
+        `Unknown reviewer role '${value}'`,
+        "REVIEWER_ROLE_INVALID",
+      );
+  }
+  return values as ReviewerRole[];
 }

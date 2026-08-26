@@ -12,5 +12,5 @@ test("Phase 0 CLI skeleton parses a command without mutating state", () => {
 test("CAP CLI exposes the implemented acceptance surface", () => {
   assert.match(helpText, /acceptance submit/);
   assert.match(helpText, /run start\|execute\|status\|logs/);
-  assert.match(helpText, /Phase 3 status/);
+  assert.match(helpText, /Phase 7 status/);
 });

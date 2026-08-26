@@ -7,6 +7,7 @@
     "version",
     "run_id",
     "verifier",
+    "stage",
     "result",
     "started_at",
     "completed_at",
@@ -17,11 +18,27 @@
     "version": { "const": 1 },
     "run_id": { "type": "string" },
     "verifier": { "type": "string" },
+    "stage": {
+      "enum": ["setup", "build", "lint", "unit", "integration", "e2e"]
+    },
     "result": { "enum": ["PASS", "FAIL", "BLOCKED", "NOT_TESTED"] },
     "started_at": { "type": "string" },
     "completed_at": { "type": "string" },
     "exit_code": { "type": ["integer", "null"] },
-    "evidence": { "type": "array" }
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": { "type": "string" },
+          "path": { "type": "string", "minLength": 1 },
+          "level": { "enum": ["E1", "E2", "E3", "E4", "E5"] }
+        },
+        "additionalProperties": true
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
   },
   "additionalProperties": true
 }

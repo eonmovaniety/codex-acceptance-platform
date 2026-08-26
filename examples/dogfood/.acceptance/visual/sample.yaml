@@ -1,0 +1,13 @@
+version: 1
+case_id: dogfood-screen
+route: /dogfood
+states:
+  - empty
+  - loading
+  - error
+  - max-content
+viewports:
+  - id: phone
+    width: 6
+    height: 4
+    dpr: 1

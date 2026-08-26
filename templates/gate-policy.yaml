@@ -1,0 +1,19 @@
+version: 1
+mandatory_verifiers:
+  - build
+  - unit
+severity:
+  S0_max: 0
+  S1_max: 0
+  S2_max_core: 0
+  S2_max_total: 2
+requirements:
+  core_must_pass: true
+  not_tested_core_allowed: false
+  blocked_core_allowed: false
+evidence:
+  enforce_contract_minimum: true
+visual:
+  baseline_change_requires_human: true
+release:
+  requires_human: true

@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import type { ProjectConfig, RiskLevel, Task } from "./domain.js";
+import { ArtifactStore } from "./artifacts.js";
 import {
   loadAcceptanceContract,
   loadProjectConfig,
@@ -25,6 +26,8 @@ import {
   FakeReviewerProvider,
   type ReviewerProvider,
 } from "./review.js";
+import { DashboardApi, DashboardServer } from "./dashboard.js";
+import { BaselineStore } from "./visual.js";
 
 export const helpText = `Codex Acceptance Platform (CAP)
 
@@ -41,6 +44,7 @@ Commands:
   acceptance submit            Submit an immutable target commit
   run start|execute|status|logs Manage an acceptance run
   fix start <project> <task>  Start a Builder fix cycle from FIX_REQUESTED
+  dashboard serve              Serve the read-only local Dashboard API
   findings list <run>          List structured findings
   artifacts open <run>         Show run artifacts
   human list|show|decide       Manage human-gate requests
@@ -51,7 +55,7 @@ Global options:
   --home <path>                Override the CAP state directory
   --json                       Emit machine-readable JSON where supported
 
-Phase 3 status: isolated verification, structured review, evidence matrix, and deterministic gate.
+Phase 7 status: isolated verification, policy-aware review, evidence matrix, dashboard, and deterministic gate.
 `;
 
 export interface ParsedArgs {
@@ -138,6 +142,18 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         return;
       case "fix":
         await handleFix(positionals, values, home);
+        return;
+      case "dashboard":
+        await handleDashboard(positionals, values, home);
+        return;
+      case "human":
+        await handleHuman(positionals, values, home);
+        return;
+      case "findings":
+        await handleFindings(positionals, values, home);
+        return;
+      case "artifacts":
+        await handleArtifacts(positionals, values, home);
         return;
       case "history":
         await handleHistory(positionals, home);
@@ -473,6 +489,146 @@ async function handleFix(
       git: new CliGitClient(),
     }).beginFix(positionals[1], positionals[2]);
     print(task, values.json === true);
+  } finally {
+    store.close();
+  }
+}
+
+async function handleDashboard(
+  positionals: string[],
+  values: ParsedOptions["values"],
+  home: AcceptanceHomePaths,
+): Promise<void> {
+  if (positionals[0] !== "serve")
+    throw new CapError(
+      "Usage: acceptance dashboard serve [--port <port>]",
+      "ARGUMENT_ERROR",
+    );
+  const portValue = asString(values.port);
+  const port = portValue === undefined ? 4173 : Number(portValue);
+  if (!Number.isInteger(port) || port < 0 || port > 65_535)
+    throw new CapError(
+      `Invalid dashboard port '${portValue}'`,
+      "ARGUMENT_ERROR",
+    );
+  const store = new SqliteStore(databasePath(home));
+  const server = new DashboardServer(
+    new DashboardApi(store, new ArtifactStore(home), home),
+  );
+  const actualPort = await server.listen(port);
+  console.log(`CAP dashboard API: http://127.0.0.1:${String(actualPort)}`);
+  await new Promise<void>((resolve) => {
+    const stop = async (): Promise<void> => {
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+      await server.close();
+      store.close();
+      resolve();
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+}
+
+async function handleHuman(
+  positionals: string[],
+  values: ParsedOptions["values"],
+  home: AcceptanceHomePaths,
+): Promise<void> {
+  const baselineStore = new BaselineStore(home);
+  const [subcommand, requestId] = positionals;
+  if (subcommand === "list") {
+    print(baselineStore.listRequests(), values.json === true);
+    return;
+  }
+  if (subcommand === "show" && requestId) {
+    print(baselineStore.getRequest(requestId), values.json === true);
+    return;
+  }
+  if (subcommand === "decide" && requestId) {
+    const choices = [
+      values.approve === true,
+      values.reject === true,
+      values.defer === true,
+    ].filter(Boolean).length;
+    if (choices !== 1)
+      throw new CapError(
+        "Choose exactly one of --approve, --reject, or --defer",
+        "ARGUMENT_ERROR",
+      );
+    const result =
+      values.approve === true
+        ? baselineStore.approveFromArtifact(requestId, new ArtifactStore(home))
+        : values.reject === true
+          ? baselineStore.reject(requestId)
+          : baselineStore.defer(requestId);
+    print(result, values.json === true);
+    return;
+  }
+  throw new CapError(
+    "Usage: acceptance human list|show <request-id>|decide <request-id> --approve|--reject|--defer",
+    "ARGUMENT_ERROR",
+  );
+}
+
+async function handleFindings(
+  positionals: string[],
+  values: ParsedOptions["values"],
+  home: AcceptanceHomePaths,
+): Promise<void> {
+  if (positionals[0] !== "list" || !positionals[1])
+    throw new CapError(
+      "Usage: acceptance findings list <run-id>",
+      "ARGUMENT_ERROR",
+    );
+  const store = new SqliteStore(databasePath(home));
+  try {
+    const run = store.getRun(positionals[1]);
+    const artifacts = new ArtifactStore(home);
+    const findings = artifacts.exists(
+      run.projectId,
+      run.taskId,
+      run.id,
+      "reviewer/report.json",
+    )
+      ? ((
+          JSON.parse(
+            artifacts.readText(
+              run.projectId,
+              run.taskId,
+              run.id,
+              "reviewer/report.json",
+            ),
+          ) as { findings?: unknown[] }
+        ).findings ?? [])
+      : [];
+    print(findings, values.json === true);
+  } finally {
+    store.close();
+  }
+}
+
+async function handleArtifacts(
+  positionals: string[],
+  values: ParsedOptions["values"],
+  home: AcceptanceHomePaths,
+): Promise<void> {
+  if (positionals[0] !== "open" || !positionals[1])
+    throw new CapError(
+      "Usage: acceptance artifacts open <run-id>",
+      "ARGUMENT_ERROR",
+    );
+  const store = new SqliteStore(databasePath(home));
+  try {
+    const run = store.getRun(positionals[1]);
+    print(
+      new ArtifactStore(home).listRelativePaths(
+        run.projectId,
+        run.taskId,
+        run.id,
+      ),
+      values.json === true,
+    );
   } finally {
     store.close();
   }

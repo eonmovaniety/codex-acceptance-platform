@@ -11,7 +11,36 @@
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{1,63}$"
     },
     "display_name": { "type": "string", "minLength": 1 },
-    "repository": { "type": "object" }
+    "repository": { "type": "object" },
+    "reviewer": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "fresh_thread_per_run": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "visual": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "policy": { "type": "string" },
+        "cases": { "type": "array", "items": { "type": "string" } },
+        "platform": { "enum": ["web", "android"] },
+        "baseline": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "properties": {
+        "security_sensitive": { "type": "boolean" },
+        "release_requested": { "type": "boolean" },
+        "sampling_percent": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

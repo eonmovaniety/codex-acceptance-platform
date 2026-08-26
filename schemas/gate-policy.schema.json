@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/gate-policy.schema.json",
+  "title": "CAP gate policy",
+  "type": "object",
+  "required": [
+    "version",
+    "mandatory_verifiers",
+    "severity",
+    "requirements",
+    "evidence",
+    "visual",
+    "release"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "mandatory_verifiers": { "type": "array", "items": { "type": "string" } },
+    "severity": {
+      "type": "object",
+      "required": ["S0_max", "S1_max", "S2_max_core", "S2_max_total"],
+      "properties": {
+        "S0_max": { "type": "integer", "minimum": 0 },
+        "S1_max": { "type": "integer", "minimum": 0 },
+        "S2_max_core": { "type": "integer", "minimum": 0 },
+        "S2_max_total": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "requirements": {
+      "type": "object",
+      "required": [
+        "core_must_pass",
+        "not_tested_core_allowed",
+        "blocked_core_allowed"
+      ],
+      "properties": {
+        "core_must_pass": { "type": "boolean" },
+        "not_tested_core_allowed": { "type": "boolean" },
+        "blocked_core_allowed": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["enforce_contract_minimum"],
+      "properties": { "enforce_contract_minimum": { "type": "boolean" } },
+      "additionalProperties": true
+    },
+    "visual": {
+      "type": "object",
+      "required": ["baseline_change_requires_human"],
+      "properties": { "baseline_change_requires_human": { "type": "boolean" } },
+      "additionalProperties": true
+    },
+    "release": {
+      "type": "object",
+      "required": ["requires_human"],
+      "properties": { "requires_human": { "type": "boolean" } },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

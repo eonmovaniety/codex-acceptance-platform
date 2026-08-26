@@ -113,6 +113,29 @@ test("submit is idempotent and preserves the immutable target", async () => {
     store.listEvents(first.run.id).at(-1)?.eventType,
     "TargetValidated",
   );
+  const otherAcceptance = join(root, "other", ".acceptance");
+  await mkdir(otherAcceptance, { recursive: true });
+  const otherConfigPath = join(otherAcceptance, "project.yaml");
+  const otherContractPath = join(otherAcceptance, "TASK-001.yaml");
+  await writeFile(otherConfigPath, "version: 1\n", "utf8");
+  await writeFile(otherContractPath, "version: 1\n", "utf8");
+  const otherProject = controller.registerProject(
+    {
+      ...config,
+      project_id: "sample-submit-b",
+      display_name: "Sample Submit B",
+    },
+    otherConfigPath,
+  );
+  const otherRun = controller.submit(
+    otherProject,
+    { ...config, project_id: "sample-submit-b" },
+    contract,
+    otherContractPath,
+    "short-ref",
+  );
+  assert.equal(otherRun.existing, false);
+  assert.equal(store.listRuns(otherProject.id, contract.task_id).length, 1);
   store.close();
   await rm(root, { recursive: true, force: true });
 });

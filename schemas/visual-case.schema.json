@@ -8,6 +8,19 @@
     "version": { "const": 1 },
     "case_id": { "type": "string", "minLength": 1 },
     "route": { "type": "string" },
+    "requirement_id": { "type": "string", "minLength": 1 },
+    "audit": {
+      "type": "object",
+      "required": ["expected_tokens", "observed_tokens"],
+      "properties": {
+        "expected_tokens": { "type": "object" },
+        "observed_tokens": { "type": "object" },
+        "expected_geometry": { "type": "object" },
+        "observed_geometry": { "type": "object" },
+        "requirement_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
     "states": {
       "type": "array",
       "minItems": 1,

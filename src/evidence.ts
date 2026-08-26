@@ -2,6 +2,7 @@ import type { ArtifactStore } from "./artifacts.js";
 import type { EvidenceLevel } from "./domain.js";
 import type { ReviewerReport } from "./review.js";
 import type { VerifierResult } from "./verifier.js";
+import { validateDocument } from "./validation.js";
 
 export type EvidenceSource = "verifier" | "reviewer" | "system" | "human";
 export type EvidenceKind =
@@ -105,7 +106,10 @@ export class EvidenceIndexBuilder {
   }
 
   write(context: EvidenceIndexContext): EvidenceIndex {
-    const index = this.build(context);
+    const index = validateDocument<EvidenceIndex>(
+      "evidence-index",
+      this.build(context),
+    );
     context.artifacts.writeJson(
       context.projectId,
       context.taskId,

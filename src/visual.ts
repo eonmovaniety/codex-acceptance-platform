@@ -1,10 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import type { ArtifactStore } from "./artifacts.js";
 import type { AcceptanceHomePaths } from "./paths.js";
 import { CapError } from "./errors.js";
+import type { ReviewerFinding } from "./review.js";
 import { validateDocument } from "./validation.js";
+import {
+  VisualTokenGeometryAuditor,
+  type VisualAuditResult,
+} from "./visual-audit.js";
 
 export type VisualPlatform = "web" | "android";
 
@@ -15,12 +26,22 @@ export interface VisualViewport {
   dpr?: number;
 }
 
+export interface VisualAuditSpec {
+  expected_tokens: Record<string, string | number>;
+  observed_tokens: Record<string, string | number>;
+  expected_geometry?: Record<string, number>;
+  observed_geometry?: Record<string, number>;
+  requirement_id?: string;
+}
+
 export interface VisualCase {
   version: 1;
   case_id: string;
   route: string;
   states: string[];
   viewports: VisualViewport[];
+  requirement_id?: string;
+  audit?: VisualAuditSpec;
 }
 
 export interface VisualFrame {
@@ -143,15 +164,18 @@ export interface BaselineRequest {
   version: 1;
   request_id: string;
   project_id: string;
+  task_id: string;
+  run_id: string;
   case_id: string;
   state: string;
   viewport_id: string;
+  platform: VisualPlatform;
   reason: "MISSING_BASELINE" | "BASELINE_CHANGE";
   candidate_artifact: string;
   baseline_path: string;
   width: number;
   height: number;
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "DEFERRED";
   created_at: string;
   updated_at: string;
 }
@@ -172,6 +196,8 @@ export class BaselineStore {
 
   compare(input: {
     projectId: string;
+    taskId: string;
+    runId: string;
     frame: VisualFrame;
     candidateArtifact: string;
   }): BaselineComparison {
@@ -227,6 +253,30 @@ export class BaselineStore {
     return updated;
   }
 
+  approveFromArtifact(
+    requestId: string,
+    artifacts: ArtifactStore,
+  ): BaselineRequest {
+    const request = this.getRequest(requestId);
+    const rgba = artifacts.readBuffer(
+      request.project_id,
+      request.task_id,
+      request.run_id,
+      request.candidate_artifact,
+    );
+    return this.approve(requestId, {
+      platform: request.platform,
+      caseId: request.case_id,
+      state: request.state,
+      viewport: {
+        id: request.viewport_id,
+        width: request.width,
+        height: request.height,
+      },
+      rgba,
+    });
+  }
+
   reject(requestId: string): BaselineRequest {
     const request = this.getRequest(requestId);
     if (request.status !== "PENDING")
@@ -243,7 +293,38 @@ export class BaselineStore {
     return updated;
   }
 
+  defer(requestId: string): BaselineRequest {
+    const request = this.getRequest(requestId);
+    if (request.status !== "PENDING")
+      throw new CapError(
+        `Baseline request is not pending: ${requestId}`,
+        "BASELINE_REQUEST_NOT_PENDING",
+      );
+    const updated: BaselineRequest = {
+      ...request,
+      status: "DEFERRED",
+      updated_at: this.now(),
+    };
+    this.writeRequest(updated);
+    return updated;
+  }
+
+  listRequests(): BaselineRequest[] {
+    const root = resolve(this.home.baselinesCache, "requests");
+    if (!existsSync(root)) return [];
+    return readdirSync(root)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) =>
+        validateDocument<BaselineRequest>(
+          "baseline-request",
+          JSON.parse(readFileSync(join(root, name), "utf8")) as unknown,
+        ),
+      )
+      .sort((left, right) => left.created_at.localeCompare(right.created_at));
+  }
+
   getRequest(requestId: string): BaselineRequest {
+    assertSafeSegment(requestId);
     const path = resolve(
       this.home.baselinesCache,
       "requests",
@@ -262,7 +343,13 @@ export class BaselineStore {
   }
 
   private createRequest(
-    input: { projectId: string; frame: VisualFrame; candidateArtifact: string },
+    input: {
+      projectId: string;
+      taskId: string;
+      runId: string;
+      frame: VisualFrame;
+      candidateArtifact: string;
+    },
     baselinePath: string,
     reason: BaselineRequest["reason"],
   ): BaselineRequest {
@@ -270,9 +357,12 @@ export class BaselineStore {
       version: 1,
       request_id: `BASE-${randomUUID().slice(0, 8).toUpperCase()}`,
       project_id: input.projectId,
+      task_id: input.taskId,
+      run_id: input.runId,
       case_id: input.frame.caseId,
       state: input.frame.state,
       viewport_id: input.frame.viewport.id,
+      platform: input.frame.platform,
       reason,
       candidate_artifact: input.candidateArtifact,
       baseline_path: baselinePath,
@@ -332,6 +422,8 @@ export interface VisualCaptureResult {
   screenshots: ScreenshotRecord[];
   human_triggers: string[];
   baseline_requests: BaselineRequest[];
+  audit_results: VisualAuditResult[];
+  audit_findings: ReviewerFinding[];
 }
 
 export class ScreenshotCaptureService {
@@ -354,6 +446,36 @@ export class ScreenshotCaptureService {
     const screenshots: ScreenshotRecord[] = [];
     const humanTriggers: string[] = [];
     const baselineRequests: BaselineRequest[] = [];
+    const auditResults: VisualAuditResult[] = [];
+    const auditFindings: ReviewerFinding[] = [];
+    if (visualCase.audit) {
+      const audit = new VisualTokenGeometryAuditor().audit({
+        expectedTokens: visualCase.audit.expected_tokens,
+        observedTokens: visualCase.audit.observed_tokens,
+        ...(visualCase.audit.expected_geometry
+          ? { expectedGeometry: visualCase.audit.expected_geometry }
+          : {}),
+        ...(visualCase.audit.observed_geometry
+          ? { observedGeometry: visualCase.audit.observed_geometry }
+          : {}),
+      });
+      auditResults.push(audit);
+      auditFindings.push(
+        ...audit.findings.map((finding): ReviewerFinding => ({
+          id: `${visualCase.case_id}-${finding.id}`,
+          requirement_id:
+            visualCase.audit?.requirement_id ??
+            visualCase.requirement_id ??
+            "VISUAL",
+          severity: finding.severity,
+          title: finding.title,
+          description: `Expected ${finding.expected}; observed ${finding.observed}`,
+          expected: finding.expected,
+          observed: finding.observed,
+          evidence_paths: [],
+        })),
+      );
+    }
     for (const state of visualCase.states) {
       assertSafeSegment(state);
       for (const viewport of visualCase.viewports) {
@@ -401,6 +523,8 @@ export class ScreenshotCaptureService {
         if (input.baselineStore) {
           const comparison = input.baselineStore.compare({
             projectId: input.projectId,
+            taskId: input.taskId,
+            runId: input.runId,
             frame,
             candidateArtifact: `${base}.rgba`,
           });
@@ -419,6 +543,8 @@ export class ScreenshotCaptureService {
       screenshots,
       human_triggers: [...new Set(humanTriggers)].sort(),
       baseline_requests: baselineRequests,
+      audit_results: auditResults,
+      audit_findings: auditFindings,
     };
   }
 }

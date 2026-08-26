@@ -192,7 +192,7 @@ export class AcceptanceController {
     contentHash: string,
   ): ContractRecord {
     const record: ContractRecord = {
-      id: contract.contract_id,
+      id: `${project.id}:${contract.contract_id}`,
       projectId: project.id,
       taskId: task.id,
       version: String(contract.version),

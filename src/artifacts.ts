@@ -150,6 +150,35 @@ export class ArtifactStore {
     return readFileSync(path, "utf8");
   }
 
+  readBuffer(
+    projectId: string,
+    taskId: string,
+    runId: string,
+    relativePath: string,
+  ): Buffer {
+    const root = this.runRoot(projectId, taskId, runId);
+    const safePath = assertRelativeArtifactPath(relativePath);
+    const path = resolve(root, safePath);
+    if (!path.startsWith(`${root}${sep}`))
+      throw new CapError(
+        "Artifact path escapes run directory",
+        "ARTIFACT_PATH_INVALID",
+      );
+    return readFileSync(path);
+  }
+
+  listRelativePaths(
+    projectId: string,
+    taskId: string,
+    runId: string,
+  ): string[] {
+    const root = this.runRoot(projectId, taskId, runId);
+    if (!existsSync(root)) return [];
+    return collectFiles(root)
+      .map((path) => relative(root, path).replaceAll(sep, "/"))
+      .sort();
+  }
+
   exists(
     projectId: string,
     taskId: string,
