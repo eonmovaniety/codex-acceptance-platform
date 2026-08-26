@@ -6,8 +6,13 @@ import type {
   ProjectConfig,
   Task,
 } from "./domain.js";
+import { dirname, resolve } from "node:path";
 import { ArtifactStore } from "./artifacts.js";
-import { loadAcceptanceContract, loadProjectConfig } from "./config.js";
+import {
+  loadAcceptanceContract,
+  loadProjectConfig,
+  loadVisualCase,
+} from "./config.js";
 import { AcceptanceController } from "./controller.js";
 import { CapError } from "./errors.js";
 import { EvidenceIndexBuilder } from "./evidence.js";
@@ -37,6 +42,13 @@ import { transitionRun, transitionTask } from "./state-machine.js";
 import { GenericCommandAdapter, type VerifierResult } from "./verifier.js";
 import { CliGitClient, type GitClient } from "./git.js";
 import { RuntimeManager, type RuntimeRecord } from "./runtime.js";
+import { TestDataManager } from "./test-data.js";
+import {
+  BaselineStore,
+  DeterministicVisualAdapter,
+  ScreenshotCaptureService,
+  type VisualCaptureResult,
+} from "./visual.js";
 import { WorktreeManager, type WorktreeRecord } from "./worktree.js";
 
 export interface AcceptanceRunExecutorDependencies {
@@ -56,6 +68,7 @@ export interface RunExecutionResult {
   run: AcceptanceRun;
   task: Task;
   verifierResults: VerifierResult[];
+  visual: VisualCaptureResult;
   matrix: AcceptanceMatrix;
   gate: GateDecision;
 }
@@ -153,6 +166,20 @@ export class AcceptanceRunExecutor {
         "runtime/record.json",
         runtime,
       );
+      const testData = new TestDataManager().prepare({
+        runId: run.id,
+        runtimePath: runtime.path,
+        config,
+        runner: this.commandRunner,
+        now: () => this.clock.now(),
+      });
+      this.artifacts.writeJson(
+        project.id,
+        task.id,
+        run.id,
+        "test-data/manifest.json",
+        testData,
+      );
       run = this.updateRunStatus(run, "PREPARING", "RunPreparing");
       run = this.updateRunStatus(run, "VERIFYING", "RunVerifying");
       const verifier = new GenericCommandAdapter();
@@ -169,11 +196,13 @@ export class AcceptanceRunExecutor {
           this.worktrees.assertTarget(worktree!.path, run.targetCommit),
         now: () => this.clock.now(),
       });
+      const visual = await this.runVisualChecks(project, task, run, config);
       const evidencePaths = [
         "verifier/summary.json",
         ...verifierResults.flatMap((result) =>
           result.evidence.map((entry) => entry.path),
         ),
+        ...visual.screenshots.map((screenshot) => screenshot.artifact_path),
       ];
       run = this.updateRunStatus(run, "REVIEWING", "RunReviewing");
       const selectedProvider = provider ?? this.createProvider(config);
@@ -221,7 +250,10 @@ export class AcceptanceRunExecutor {
         report: review.report,
         verifierResults,
         ...(configuredPolicy ? { policy: configuredPolicy } : {}),
-        humanTriggers: config.human_gates ?? [],
+        humanTriggers: [
+          ...(config.human_gates ?? []),
+          ...visual.human_triggers,
+        ],
         now: () => this.clock.now(),
       });
       writeGateDecision(this.artifacts, project.id, task.id, gate);
@@ -265,7 +297,7 @@ export class AcceptanceRunExecutor {
       this.captureAndResetReviewerWorktree(worktree, project, task, run);
       this.artifacts.finalize(project.id, task.id, run.id);
       this.dependencies.store.appendEvent(run.id, "ArtifactsFinalized", {});
-      return { run, task: finalTask, verifierResults, matrix, gate };
+      return { run, task: finalTask, verifierResults, visual, matrix, gate };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.artifacts.writeJson(project.id, task.id, run.id, "run/error.json", {
@@ -339,6 +371,74 @@ export class AcceptanceRunExecutor {
       });
     }
     return new FakeReviewerProvider();
+  }
+
+  private async runVisualChecks(
+    project: Project,
+    task: Task,
+    run: AcceptanceRun,
+    config: ProjectConfig,
+  ): Promise<VisualCaptureResult> {
+    const visualConfig = config.visual;
+    if (!visualConfig?.enabled || !visualConfig.cases?.length)
+      return {
+        screenshots: [],
+        human_triggers: [],
+        baseline_requests: [],
+      };
+    const visualCases = await Promise.all(
+      visualConfig.cases.map((path) =>
+        loadVisualCase(resolve(dirname(project.configPath), path)),
+      ),
+    );
+    const baselineStore =
+      visualConfig.baseline === false
+        ? undefined
+        : new BaselineStore(this.dependencies.home, () => this.clock.now());
+    const capture = new ScreenshotCaptureService(this.artifacts);
+    const adapter = new DeterministicVisualAdapter(
+      visualConfig.platform ?? "web",
+    );
+    const captures = visualCases.map((visualCase) =>
+      capture.captureCase({
+        projectId: project.id,
+        taskId: task.id,
+        runId: run.id,
+        testDataVersion: run.testDataVersion,
+        visualCase,
+        adapter,
+        ...(baselineStore ? { baselineStore } : {}),
+      }),
+    );
+    const result: VisualCaptureResult = {
+      screenshots: captures.flatMap(
+        (captureResult) => captureResult.screenshots,
+      ),
+      human_triggers: [
+        ...new Set(
+          captures.flatMap((captureResult) => captureResult.human_triggers),
+        ),
+      ].sort(),
+      baseline_requests: captures.flatMap(
+        (captureResult) => captureResult.baseline_requests,
+      ),
+    };
+    this.artifacts.writeJson(
+      project.id,
+      task.id,
+      run.id,
+      "visual/summary.json",
+      result,
+    );
+    if (result.baseline_requests.length > 0)
+      this.artifacts.writeJson(
+        project.id,
+        task.id,
+        run.id,
+        "visual/baseline-requests.json",
+        result.baseline_requests,
+      );
+    return result;
   }
 
   private previousFailurePaths(project: Project, task: Task): string[] {

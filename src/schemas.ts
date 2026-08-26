@@ -11,6 +11,8 @@ export type SchemaName =
   | "fix-request"
   | "impact-analysis"
   | "human-request"
+  | "baseline-request"
+  | "test-data-manifest"
   | "gate-decision"
   | "visual-case";
 
@@ -506,6 +508,66 @@ export const capSchemas: Record<SchemaName, object> = {
     },
     additionalProperties: true,
   },
+  "baseline-request": {
+    type: "object",
+    required: [
+      "version",
+      "request_id",
+      "project_id",
+      "case_id",
+      "state",
+      "viewport_id",
+      "reason",
+      "candidate_artifact",
+      "baseline_path",
+      "width",
+      "height",
+      "status",
+      "created_at",
+      "updated_at",
+    ],
+    properties: {
+      version: versionOne,
+      request_id: { type: "string", minLength: 1 },
+      project_id: { type: "string", minLength: 1 },
+      case_id: { type: "string", minLength: 1 },
+      state: { type: "string", minLength: 1 },
+      viewport_id: { type: "string", minLength: 1 },
+      reason: { enum: ["MISSING_BASELINE", "BASELINE_CHANGE"] },
+      candidate_artifact: { type: "string", minLength: 1 },
+      baseline_path: { type: "string", minLength: 1 },
+      width: { type: "integer", minimum: 1 },
+      height: { type: "integer", minimum: 1 },
+      status: { enum: ["PENDING", "APPROVED", "REJECTED"] },
+      created_at: { type: "string", minLength: 1 },
+      updated_at: { type: "string", minLength: 1 },
+    },
+    additionalProperties: true,
+  },
+  "test-data-manifest": {
+    type: "object",
+    required: [
+      "version",
+      "run_id",
+      "data_version",
+      "root",
+      "layers",
+      "fresh_database",
+      "stages",
+      "marker_path",
+    ],
+    properties: {
+      version: versionOne,
+      run_id: { type: "string", minLength: 1 },
+      data_version: { type: "string", minLength: 1 },
+      root: { type: "string", minLength: 1 },
+      layers: { type: "array", minItems: 4 },
+      fresh_database: { type: "boolean" },
+      stages: { type: "array" },
+      marker_path: { type: "string", minLength: 1 },
+    },
+    additionalProperties: true,
+  },
   "gate-decision": {
     type: "object",
     required: [
@@ -532,10 +594,28 @@ export const capSchemas: Record<SchemaName, object> = {
     required: ["version", "case_id", "route", "states", "viewports"],
     properties: {
       version: versionOne,
-      case_id: { type: "string" },
+      case_id: { type: "string", minLength: 1 },
       route: { type: "string" },
-      states: { type: "array", minItems: 1 },
-      viewports: { type: "array", minItems: 1 },
+      states: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", minLength: 1 },
+      },
+      viewports: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["id", "width", "height"],
+          properties: {
+            id: { type: "string", minLength: 1 },
+            width: { type: "integer", minimum: 1 },
+            height: { type: "integer", minimum: 1 },
+            dpr: { type: "number", exclusiveMinimum: 0 },
+          },
+          additionalProperties: true,
+        },
+      },
     },
     additionalProperties: true,
   },

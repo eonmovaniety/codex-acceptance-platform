@@ -79,6 +79,9 @@ export interface ProjectConfig {
   visual?: {
     enabled?: boolean;
     policy?: string;
+    cases?: string[];
+    platform?: "web" | "android";
+    baseline?: boolean;
   };
   gate?: {
     policy?: string;

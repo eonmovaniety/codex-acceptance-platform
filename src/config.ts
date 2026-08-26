@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import type { AcceptanceContract, ProjectConfig } from "./domain.js";
 import { validateDocument } from "./validation.js";
+import type { VisualCase } from "./visual.js";
 
 export async function readYamlFile(path: string): Promise<unknown> {
   const content = await readFile(path, "utf8");
@@ -26,6 +27,10 @@ export async function loadAcceptanceContract(
     "acceptance-contract",
     await readYamlFile(path),
   );
+}
+
+export async function loadVisualCase(path: string): Promise<VisualCase> {
+  return validateDocument<VisualCase>("visual-case", await readYamlFile(path));
 }
 
 export async function sha256File(path: string): Promise<string> {

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/baseline-request.schema.json",
+  "title": "Visual baseline human request",
+  "type": "object",
+  "required": [
+    "version",
+    "request_id",
+    "project_id",
+    "case_id",
+    "state",
+    "viewport_id",
+    "reason",
+    "candidate_artifact",
+    "baseline_path",
+    "width",
+    "height",
+    "status",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "case_id": { "type": "string", "minLength": 1 },
+    "state": { "type": "string", "minLength": 1 },
+    "viewport_id": { "type": "string", "minLength": 1 },
+    "reason": { "enum": ["MISSING_BASELINE", "BASELINE_CHANGE"] },
+    "candidate_artifact": { "type": "string", "minLength": 1 },
+    "baseline_path": { "type": "string", "minLength": 1 },
+    "width": { "type": "integer", "minimum": 1 },
+    "height": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["PENDING", "APPROVED", "REJECTED"] },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}

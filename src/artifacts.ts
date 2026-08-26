@@ -96,6 +96,27 @@ export class ArtifactStore {
     return path;
   }
 
+  writeBuffer(
+    projectId: string,
+    taskId: string,
+    runId: string,
+    relativePath: string,
+    content: Uint8Array,
+  ): string {
+    const root = this.ensureRun(projectId, taskId, runId);
+    this.assertWritable(root);
+    const safePath = assertRelativeArtifactPath(relativePath);
+    const path = resolve(root, safePath);
+    if (!path.startsWith(`${root}${sep}`))
+      throw new CapError(
+        "Artifact path escapes run directory",
+        "ARTIFACT_PATH_INVALID",
+      );
+    mkdirSync(resolve(path, ".."), { recursive: true });
+    writeFileSync(path, content);
+    return path;
+  }
+
   writeJson(
     projectId: string,
     taskId: string,

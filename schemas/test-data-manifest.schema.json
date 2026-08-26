@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/test-data-manifest.schema.json",
+  "title": "Test data manifest",
+  "type": "object",
+  "required": [
+    "version",
+    "run_id",
+    "data_version",
+    "root",
+    "layers",
+    "fresh_database",
+    "stages",
+    "marker_path"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "data_version": { "type": "string", "minLength": 1 },
+    "root": { "type": "string", "minLength": 1 },
+    "layers": { "type": "array", "minItems": 4 },
+    "fresh_database": { "type": "boolean" },
+    "stages": { "type": "array" },
+    "marker_path": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}

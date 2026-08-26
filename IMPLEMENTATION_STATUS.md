@@ -10,7 +10,7 @@ Attached document: engineering requirements and a staged implementation plan. It
 
 ## Current phase
 
-**Phase 5 — ready to start**
+**Phase 6 — ready to start**
 
 ## Completed in this phase
 
@@ -33,6 +33,9 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Added `run execute` orchestration for worktree, runtime, verifier, reviewer, matrix, gate, artifact finalization, and safe cleanup.
 - Added structured Failure Package, Fix Request, Impact Analysis, deterministic escalation, and `fix start` CLI flow.
 - Added fail-once/new-commit integration coverage proving old Runs remain immutable and new Runs use fresh reviewer IDs.
+- Added fresh TestDataManager layers (`base`, `scenario`, `edge`, `visual`) with reset/seed lifecycle markers.
+- Added a common Web/Android visual adapter contract, deterministic screenshot fixture capture, exact PixelDiff, baseline requests, and explicit human-only baseline approval.
+- Added visual execution integration to `run execute` when project visual cases are enabled.
 
 ## Phase 0 exit-gate evidence
 
@@ -86,13 +89,23 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Previous failure artifacts remain queryable after the new Run passes: PASS.
 - Impact analysis retains failed/core requirements and `core-smoke`: PASS.
 
+## Phase 5 exit-gate evidence
+
+- `npm test`: PASS, 32 tests.
+- Fresh test-data layers and reset/seed lifecycle: PASS.
+- Same visual case and data version produce pixel-identical fixture artifacts: PASS.
+- Data-version change produces different fixture artifacts: PASS.
+- Empty/loading/error/max-content visual states are covered: PASS.
+- Baseline missing/change produces a pending Human request without overwriting the baseline: PASS.
+- Explicit baseline approval is the only update path covered by tests: PASS.
+
 ## Risks and limits
 
 - Runtime support currently targets Node 24 because CAP uses the built-in `node:sqlite` API.
 - The real Codex provider is implemented but not invoked in this build; live CLI credentials and target-project acceptance remain operator-controlled.
-- `run execute` currently uses the generic command adapter and does not yet implement platform-specific Web/Android visual capture.
+- `run execute` uses deterministic fixture capture for enabled visual cases; it does not yet implement platform-specific Web/Android device/browser capture or perceptual image diff.
 - No external target project, device, production service, or external Codex credential is touched by this bootstrap.
 
 ## Next phase
 
-Phase 5: TestDataManager, fresh database lifecycle, Web/Android adapter contract, visual cases, screenshot capture, pixel diff, and baseline Human Gate.
+Phase 6: multiple Reviewer roles, conflict handling, visual geometry/token checks, adversarial scenarios, risk/automation policy, sampling, and release gates.
