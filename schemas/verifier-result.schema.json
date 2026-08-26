@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/verifier-result.schema.json",
+  "title": "Verifier result",
+  "type": "object",
+  "required": [
+    "version",
+    "run_id",
+    "verifier",
+    "result",
+    "started_at",
+    "completed_at",
+    "exit_code",
+    "evidence"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "verifier": { "type": "string" },
+    "result": { "enum": ["PASS", "FAIL", "BLOCKED", "NOT_TESTED"] },
+    "started_at": { "type": "string" },
+    "completed_at": { "type": "string" },
+    "exit_code": { "type": ["integer", "null"] },
+    "evidence": { "type": "array" }
+  },
+  "additionalProperties": true
+}

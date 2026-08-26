@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/human-request.schema.json",
+  "title": "Human decision request",
+  "type": "object",
+  "required": ["version", "run_id", "reason", "question", "options", "risk"],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "reason": { "type": "string" },
+    "question": { "type": "string" },
+    "options": { "type": "array", "minItems": 2 },
+    "risk": { "type": "string" }
+  },
+  "additionalProperties": true
+}

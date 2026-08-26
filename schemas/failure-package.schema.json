@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/failure-package.schema.json",
+  "title": "Failure package",
+  "type": "object",
+  "required": [
+    "version",
+    "run_id",
+    "target_commit",
+    "task_id",
+    "decision",
+    "failures",
+    "required_retests"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "target_commit": { "type": "string" },
+    "task_id": { "type": "string" },
+    "decision": { "const": "FAIL" },
+    "failures": { "type": "array" },
+    "required_retests": { "type": "array" }
+  },
+  "additionalProperties": true
+}

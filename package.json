@@ -1,0 +1,38 @@
+{
+  "name": "codex-acceptance-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first, CLI-first acceptance platform for immutable commits, evidence, reviewers, and deterministic gates.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck && node scripts/lint.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build && node scripts/run-tests.mjs",
+    "test:watch": "node --test --watch dist/tests/unit/phase0.test.js",
+    "test:unit": "npm run build && node scripts/run-tests.mjs unit",
+    "test:integration": "npm run build && node scripts/run-tests.mjs integration",
+    "test:e2e": "npm run build && node scripts/run-tests.mjs e2e",
+    "cli": "npm run build && node dist/src/cli.js",
+    "acceptance": "npm run build && node dist/src/cli.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  }
+}

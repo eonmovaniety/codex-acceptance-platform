@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/run-manifest.schema.json",
+  "title": "Run manifest",
+  "type": "object",
+  "required": [
+    "version",
+    "run_id",
+    "project_id",
+    "task_id",
+    "target_commit",
+    "contract_version",
+    "test_data_version",
+    "gate_policy_version",
+    "created_at",
+    "immutable"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "target_commit": { "type": "string", "minLength": 7 },
+    "contract_version": { "type": "string", "minLength": 1 },
+    "test_data_version": { "type": "string", "minLength": 1 },
+    "gate_policy_version": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "immutable": { "const": true }
+  },
+  "additionalProperties": true
+}

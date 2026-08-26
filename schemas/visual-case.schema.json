@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/visual-case.schema.json",
+  "title": "Visual case",
+  "type": "object",
+  "required": ["version", "case_id", "route", "states", "viewports"],
+  "properties": {
+    "version": { "const": 1 },
+    "case_id": { "type": "string" },
+    "route": { "type": "string" },
+    "states": { "type": "array", "minItems": 1 },
+    "viewports": { "type": "array", "minItems": 1 }
+  },
+  "additionalProperties": true
+}

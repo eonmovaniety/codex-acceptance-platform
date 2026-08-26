@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/gate-decision.schema.json",
+  "title": "Gate decision",
+  "type": "object",
+  "required": [
+    "version",
+    "run_id",
+    "decision",
+    "reason_codes",
+    "policy_version",
+    "created_at"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "decision": { "enum": ["PASS", "FAIL", "HUMAN"] },
+    "reason_codes": { "type": "array" },
+    "policy_version": { "type": "string" },
+    "created_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

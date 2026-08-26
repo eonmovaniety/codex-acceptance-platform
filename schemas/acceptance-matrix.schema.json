@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/acceptance-matrix.schema.json",
+  "title": "Acceptance matrix",
+  "type": "object",
+  "required": ["version", "run_id", "requirements"],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "requirements": { "type": "array" }
+  },
+  "additionalProperties": true
+}

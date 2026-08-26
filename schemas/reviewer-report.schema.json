@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/reviewer-report.schema.json",
+  "title": "Reviewer report",
+  "type": "object",
+  "required": [
+    "version",
+    "run_id",
+    "target_commit",
+    "reviewer_verdict",
+    "requirement_results"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "target_commit": { "type": "string" },
+    "reviewer_verdict": { "enum": ["PASS", "FAIL", "HUMAN", "NOT_TESTED"] },
+    "requirement_results": { "type": "array" }
+  },
+  "additionalProperties": true
+}

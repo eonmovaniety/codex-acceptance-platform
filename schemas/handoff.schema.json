@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cap://schemas/handoff.schema.json",
+  "title": "Builder handoff",
+  "type": "object",
+  "required": [
+    "version",
+    "project_id",
+    "task_id",
+    "target_commit",
+    "contract_id"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "target_commit": { "type": "string", "pattern": "^[0-9a-fA-F]{7,64}$" },
+    "contract_id": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}
