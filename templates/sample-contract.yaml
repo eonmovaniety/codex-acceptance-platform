@@ -1,0 +1,16 @@
+version: 1
+contract_id: TASK-001-v1
+task_id: TASK-001
+title: Sample acceptance task
+risk_level: R1
+spec_version: v1
+
+requirements:
+  - id: AC-01
+    title: The task produces the expected result
+    criticality: core
+    verification:
+      modes: [unit]
+      required_evidence: E2
+    expected:
+      - The command exits with code zero

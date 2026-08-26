@@ -1,0 +1,9 @@
+version: 1
+enabled: false
+states:
+  - default
+  - loading
+  - empty
+  - error
+  - max-content
+baseline_updates_require_human: true

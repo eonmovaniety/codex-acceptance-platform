@@ -10,16 +10,17 @@ Attached document: engineering requirements and a staged implementation plan. It
 
 ## Current phase
 
-**Phase 1 — ready to start**
+**Phase 2 — ready to start**
 
 ## Completed in this phase
 
-- Created an isolated Git repository under `work/codex-acceptance-platform`.
-- Added TypeScript + Node.js project configuration.
-- Added Vitest test configuration and a minimal lint check.
-- Added CLI skeleton with the documented command surface.
-- Added the SQLite migration tracking table.
-- Added initial AGENTS rules, README, architecture/ADR placeholders, and versioned schema placeholders.
+- Phase 0 bootstrap is complete and committed.
+- Added typed Project, Task, Contract, Requirement, Run, and event-log models.
+- Added Task and Run state machines with rejected illegal transitions.
+- Added SQLite migrations, repositories, restart recovery, and append-only run field protection.
+- Added AJV-backed project/contract schema validation.
+- Added project registration, contract validation, task creation, run status/logs, and idempotent submit CLI flows.
+- Added templates and Phase 1 operations documentation.
 
 ## Phase 0 exit-gate evidence
 
@@ -30,12 +31,22 @@ Attached document: engineering requirements and a staged implementation plan. It
 - `npm run test:unit`: PASS, 2 tests.
 - `npm run acceptance -- --help`: PASS.
 
+## Phase 1 exit-gate evidence
+
+- `npm run build`: PASS.
+- `npm run lint`: PASS.
+- `npm test`: PASS, 11 tests.
+- SQLite restart recovery: PASS.
+- Illegal state transitions: PASS (rejected by unit tests).
+- Same idempotency key returns the original Run: PASS.
+- Project and acceptance-contract schema validation: PASS.
+
 ## Risks and limits
 
 - Runtime support currently targets Node 24 because CAP uses the built-in `node:sqlite` API.
-- Phase 1 will replace the bootstrap CLI with the domain model, repository, schema validation, and idempotent submit flow.
+- Phase 2 will add worktree freezing, external immutable artifacts, runtime allocation, command execution, generic verifiers, and safe cleanup.
 - No real project, device, production service, or external Codex credential is touched by this bootstrap.
 
 ## Next phase
 
-Phase 1: Project, Task, Contract, Run, state machines, SQLite repository, event log, schema validation, and idempotent submit.
+Phase 2: Worktree, artifact, runtime, command runner, generic verifier, cleanup, leases, and fake-project E2E.

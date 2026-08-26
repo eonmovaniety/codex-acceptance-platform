@@ -1,0 +1,11 @@
+version: 1
+policy_id: default
+minimum_core_evidence: E3
+block_on_not_tested: true
+block_on_infra_failure: true
+human_triggers:
+  - contract_change
+  - baseline_update
+  - architecture_change
+  - release
+  - irreversible_action

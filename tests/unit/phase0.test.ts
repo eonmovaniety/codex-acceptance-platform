@@ -11,5 +11,5 @@ test("Phase 0 CLI skeleton parses a command without mutating state", () => {
 
 test("Phase 0 CLI skeleton exposes the documented CLI surface", () => {
   assert.match(helpText, /acceptance submit/);
-  assert.match(helpText, /Phase 0 status/);
+  assert.match(helpText, /Phase 1 status/);
 });

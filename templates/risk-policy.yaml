@@ -1,0 +1,10 @@
+version: 1
+levels:
+  R0:
+    automation: A4
+  R1:
+    automation: A3
+  R2:
+    automation: A2
+  R3:
+    automation: A0
