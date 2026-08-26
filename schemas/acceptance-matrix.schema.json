@@ -3,11 +3,64 @@
   "$id": "cap://schemas/acceptance-matrix.schema.json",
   "title": "Acceptance matrix",
   "type": "object",
-  "required": ["version", "run_id", "requirements"],
+  "required": ["version", "run_id", "requirements", "coverage"],
   "properties": {
     "version": { "const": 1 },
     "run_id": { "type": "string" },
-    "requirements": { "type": "array" }
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "criticality",
+          "result",
+          "required_evidence",
+          "actual_evidence",
+          "artifacts",
+          "evidence_valid",
+          "finding_ids",
+          "human_required"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "criticality": { "enum": ["core", "major", "minor"] },
+          "result": {
+            "enum": ["PASS", "FAIL", "NOT_TESTED", "BLOCKED", "NOT_APPLICABLE"]
+          },
+          "required_evidence": { "enum": ["E0", "E1", "E2", "E3", "E4", "E5"] },
+          "actual_evidence": { "enum": ["E0", "E1", "E2", "E3", "E4", "E5"] },
+          "artifacts": { "type": "array", "items": { "type": "string" } },
+          "evidence_valid": { "type": "boolean" },
+          "severity": { "enum": ["S0", "S1", "S2", "S3", "S4"] },
+          "finding_ids": { "type": "array", "items": { "type": "string" } },
+          "human_required": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "total",
+        "pass",
+        "fail",
+        "not_tested",
+        "blocked",
+        "not_applicable"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "not_tested": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "not_applicable": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

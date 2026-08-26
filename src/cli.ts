@@ -1,5 +1,6 @@
+import { existsSync } from "node:fs";
 import { access, lstat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import type { ProjectConfig, RiskLevel, Task } from "./domain.js";
@@ -18,6 +19,12 @@ import {
   type AcceptanceHomePaths,
 } from "./paths.js";
 import { SqliteStore, systemClock } from "./storage.js";
+import { AcceptanceRunExecutor } from "./orchestrator.js";
+import {
+  CodexCliReviewerProvider,
+  FakeReviewerProvider,
+  type ReviewerProvider,
+} from "./review.js";
 
 export const helpText = `Codex Acceptance Platform (CAP)
 
@@ -32,7 +39,7 @@ Commands:
   contract validate <file>     Validate an acceptance contract
   task create <project> <id>   Register a task
   acceptance submit            Submit an immutable target commit
-  run start|status|logs        Manage an acceptance run
+  run start|execute|status|logs Manage an acceptance run
   findings list <run>          List structured findings
   artifacts open <run>         Show run artifacts
   human list|show|decide       Manage human-gate requests
@@ -43,7 +50,7 @@ Global options:
   --home <path>                Override the CAP state directory
   --json                       Emit machine-readable JSON where supported
 
-Phase 1 status: domain, state, storage, schema validation, and idempotent submit.
+Phase 3 status: isolated verification, structured review, evidence matrix, and deterministic gate.
 `;
 
 export interface ParsedArgs {
@@ -126,7 +133,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         await handleSubmit(positionals, values, home);
         return;
       case "run":
-        await handleRun(positionals, home);
+        await handleRun(positionals, values, home);
         return;
       case "history":
         await handleHistory(positionals, home);
@@ -351,6 +358,7 @@ async function handleSubmit(
 
 async function handleRun(
   positionals: string[],
+  values: ParsedOptions["values"],
   home: AcceptanceHomePaths,
 ): Promise<void> {
   const [subcommand, runId] = positionals;
@@ -366,11 +374,32 @@ async function handleRun(
       git: new CliGitClient(),
     });
     if (subcommand === "status") {
-      console.log(JSON.stringify(store.getRun(runId), null, 2));
+      print(store.getRun(runId), values.json === true);
     } else if (subcommand === "logs") {
-      console.log(JSON.stringify(store.listEvents(runId), null, 2));
+      print(store.listEvents(runId), values.json === true);
     } else if (subcommand === "start") {
-      console.log(JSON.stringify(controller.startRun(runId), null, 2));
+      print(controller.startRun(runId), values.json === true);
+    } else if (subcommand === "execute") {
+      const forcedProvider = createForcedProvider(asString(values.provider));
+      const result = await new AcceptanceRunExecutor({
+        store,
+        home,
+        git: new CliGitClient(),
+        ...(forcedProvider
+          ? {
+              reviewerProviderFactory: ({
+                schemaPath,
+              }: {
+                schemaPath: string;
+              }) =>
+                forcedProvider === "codex"
+                  ? new CodexCliReviewerProvider({ schemaPath })
+                  : new FakeReviewerProvider(),
+            }
+          : {}),
+        reviewerSchemaPath: findReviewerSchemaPath(),
+      }).execute(runId);
+      print(result, values.json === true);
     } else {
       throw new CapError(
         `Unknown run subcommand '${subcommand}'`,
@@ -380,6 +409,30 @@ async function handleRun(
   } finally {
     store.close();
   }
+}
+
+function createForcedProvider(
+  value: string | undefined,
+): "fake" | "codex" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "fake" || value === "codex") return value;
+  throw new CapError(`Invalid reviewer provider '${value}'`, "ARGUMENT_ERROR");
+}
+
+function findReviewerSchemaPath(): string {
+  const candidates = [
+    resolve(process.cwd(), "schemas", "reviewer-report.schema.json"),
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "schemas",
+      "reviewer-report.schema.json",
+    ),
+  ];
+  return (
+    candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!
+  );
 }
 
 async function handleHistory(

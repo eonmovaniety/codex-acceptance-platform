@@ -10,7 +10,7 @@ Attached document: engineering requirements and a staged implementation plan. It
 
 ## Current phase
 
-**Phase 3 — ready to start**
+**Phase 4 — ready to start**
 
 ## Completed in this phase
 
@@ -26,6 +26,11 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Added sanitized, shell-composition-free command runner and Generic Command Adapter for setup/build/lint/unit/integration/e2e stages.
 - Added runtime directories, port and runtime leases, marker validation, and lease-aware cleanup.
 - Added deterministic unit/integration coverage for worktree isolation, artifacts, command execution, verifier behavior, and runtime allocation.
+- Added Fake and Codex CLI reviewer providers with read-only, ephemeral, schema-constrained execution.
+- Added the Acceptance Reviewer Skill contract and reviewer target/evidence hard rules.
+- Added Evidence Index, Acceptance Matrix, deterministic Quality Gate, and human/infra decision handling.
+- Added fresh-per-Run reviewer sessions with report-persist-before-archive lifecycle.
+- Added `run execute` orchestration for worktree, runtime, verifier, reviewer, matrix, gate, artifact finalization, and safe cleanup.
 
 ## Phase 0 exit-gate evidence
 
@@ -56,12 +61,26 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Generic verifier structured results, early failure, and `NOT_TESTED`: PASS.
 - Runtime path isolation and non-conflicting port leases: PASS.
 
+## Phase 3 exit-gate evidence
+
+- `npm run build`: PASS.
+- `npm run lint`: PASS.
+- `npm run format:check`: PASS.
+- `npm test`: PASS, 28 tests.
+- Missing or non-existent PASS evidence produces `FAIL`: PASS.
+- Core `NOT_TESTED` produces `FAIL`: PASS.
+- Infra failure and baseline/human triggers do not produce `PASS`: PASS.
+- Codex provider command construction uses read-only, JSON, output schema, and ephemeral flags: PASS with injected process runner.
+- Every orchestrated Run receives a fresh reviewer session and persists the report before archive: PASS.
+- Fake-provider end-to-end orchestration reaches `COMPLETED_PASS`, `ACCEPTED`, and finalized artifacts: PASS.
+
 ## Risks and limits
 
 - Runtime support currently targets Node 24 because CAP uses the built-in `node:sqlite` API.
-- Phase 3 will add fresh reviewer providers, the Acceptance Skill, Evidence/Acceptance Matrix, deterministic Quality Gate, and session lifecycle.
-- No real project, device, production service, or external Codex credential is touched by this bootstrap.
+- The real Codex provider is implemented but not invoked in this build; live CLI credentials and target-project acceptance remain operator-controlled.
+- `run execute` currently uses the generic command adapter and does not yet implement platform-specific Web/Android visual capture.
+- No external target project, device, production service, or external Codex credential is touched by this bootstrap.
 
 ## Next phase
 
-Phase 3: Codex/fake reviewer providers, reviewer report schema, Evidence, Acceptance Matrix, Quality Gate, and reviewer sessions.
+Phase 4: Failure Package, Fix Request, structured retry history, escalation, and regression retest.

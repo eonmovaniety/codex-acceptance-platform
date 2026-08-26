@@ -9,15 +9,21 @@
     "decision",
     "reason_codes",
     "policy_version",
-    "created_at"
+    "created_at",
+    "details"
   ],
   "properties": {
     "version": { "const": 1 },
     "run_id": { "type": "string" },
     "decision": { "enum": ["PASS", "FAIL", "HUMAN"] },
-    "reason_codes": { "type": "array" },
-    "policy_version": { "type": "string" },
-    "created_at": { "type": "string" }
+    "reason_codes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "policy_version": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "details": { "type": "object" }
   },
   "additionalProperties": true
 }

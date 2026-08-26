@@ -5,6 +5,7 @@ export type SchemaName =
   | "run-manifest"
   | "verifier-result"
   | "reviewer-report"
+  | "evidence-index"
   | "acceptance-matrix"
   | "failure-package"
   | "human-request"
@@ -31,6 +32,86 @@ const requirement = {
     },
     expected: { type: "array", items: { type: "string" } },
     human_required: { type: "boolean" },
+  },
+  additionalProperties: true,
+};
+
+const reviewerFinding = {
+  type: "object",
+  required: [
+    "id",
+    "requirement_id",
+    "severity",
+    "title",
+    "description",
+    "evidence_paths",
+  ],
+  properties: {
+    id: { type: "string", minLength: 1 },
+    requirement_id: { type: "string", minLength: 1 },
+    severity: { enum: ["S0", "S1", "S2", "S3", "S4"] },
+    title: { type: "string", minLength: 1 },
+    description: { type: "string", minLength: 1 },
+    expected: { type: "string" },
+    observed: { type: "string" },
+    reproduction: { type: "array", items: { type: "string" } },
+    evidence_paths: { type: "array", items: { type: "string" } },
+  },
+  additionalProperties: true,
+};
+
+const reviewerRequirementResult = {
+  type: "object",
+  required: [
+    "requirement_id",
+    "result",
+    "evidence_level",
+    "evidence_paths",
+    "finding_ids",
+  ],
+  properties: {
+    requirement_id: { type: "string", minLength: 1 },
+    result: {
+      enum: ["PASS", "FAIL", "NOT_TESTED", "BLOCKED", "NOT_APPLICABLE"],
+    },
+    evidence_level: { enum: ["E0", "E1", "E2", "E3", "E4", "E5"] },
+    evidence_paths: { type: "array", items: { type: "string" } },
+    severity: { enum: ["S0", "S1", "S2", "S3", "S4"] },
+    finding_ids: { type: "array", items: { type: "string" } },
+    expected: { type: "string" },
+    observed: { type: "string" },
+    reproduction: { type: "array", items: { type: "string" } },
+    notes: { type: "array", items: { type: "string" } },
+  },
+  additionalProperties: true,
+};
+
+const reviewerHumanRequest = {
+  type: "object",
+  required: ["id", "reason", "question", "options", "risk"],
+  properties: {
+    id: { type: "string", minLength: 1 },
+    reason: { type: "string", minLength: 1 },
+    question: { type: "string", minLength: 1 },
+    options: { type: "array", items: { type: "string" }, minItems: 2 },
+    risk: { type: "string", minLength: 1 },
+  },
+  additionalProperties: true,
+};
+
+const evidenceRecord = {
+  type: "object",
+  required: ["id", "run_id", "source", "kind", "path", "level", "exists"],
+  properties: {
+    id: { type: "string", minLength: 1 },
+    run_id: { type: "string", minLength: 1 },
+    requirement_id: { type: "string" },
+    source: { enum: ["verifier", "reviewer", "system", "human"] },
+    kind: { type: "string", minLength: 1 },
+    path: { type: "string", minLength: 1 },
+    level: { enum: ["E0", "E1", "E2", "E3", "E4", "E5"] },
+    exists: { type: "boolean" },
+    description: { type: "string" },
   },
   additionalProperties: true,
 };
@@ -163,13 +244,37 @@ export const capSchemas: Record<SchemaName, object> = {
       "target_commit",
       "reviewer_verdict",
       "requirement_results",
+      "findings",
+      "requested_human_decisions",
+      "requested_probes",
+      "notes",
     ],
     properties: {
       version: versionOne,
       run_id: { type: "string" },
       target_commit: { type: "string" },
       reviewer_verdict: { enum: ["PASS", "FAIL", "HUMAN", "NOT_TESTED"] },
-      requirement_results: { type: "array" },
+      requirement_results: {
+        type: "array",
+        items: reviewerRequirementResult,
+      },
+      findings: { type: "array", items: reviewerFinding },
+      requested_human_decisions: {
+        type: "array",
+        items: reviewerHumanRequest,
+      },
+      requested_probes: { type: "array", items: { type: "string" } },
+      notes: { type: "array", items: { type: "string" } },
+    },
+    additionalProperties: true,
+  },
+  "evidence-index": {
+    type: "object",
+    required: ["version", "run_id", "records"],
+    properties: {
+      version: versionOne,
+      run_id: { type: "string", minLength: 1 },
+      records: { type: "array", items: evidenceRecord },
     },
     additionalProperties: true,
   },
@@ -179,7 +284,64 @@ export const capSchemas: Record<SchemaName, object> = {
     properties: {
       version: versionOne,
       run_id: { type: "string" },
-      requirements: { type: "array" },
+      requirements: {
+        type: "array",
+        items: {
+          type: "object",
+          required: [
+            "id",
+            "title",
+            "criticality",
+            "result",
+            "required_evidence",
+            "actual_evidence",
+            "artifacts",
+            "evidence_valid",
+            "finding_ids",
+            "human_required",
+          ],
+          properties: {
+            id: { type: "string", minLength: 1 },
+            title: { type: "string", minLength: 1 },
+            criticality: { enum: ["core", "major", "minor"] },
+            result: {
+              enum: ["PASS", "FAIL", "NOT_TESTED", "BLOCKED", "NOT_APPLICABLE"],
+            },
+            required_evidence: {
+              enum: ["E0", "E1", "E2", "E3", "E4", "E5"],
+            },
+            actual_evidence: {
+              enum: ["E0", "E1", "E2", "E3", "E4", "E5"],
+            },
+            artifacts: { type: "array", items: { type: "string" } },
+            evidence_valid: { type: "boolean" },
+            severity: { enum: ["S0", "S1", "S2", "S3", "S4"] },
+            finding_ids: { type: "array", items: { type: "string" } },
+            human_required: { type: "boolean" },
+          },
+          additionalProperties: true,
+        },
+      },
+      coverage: {
+        type: "object",
+        required: [
+          "total",
+          "pass",
+          "fail",
+          "not_tested",
+          "blocked",
+          "not_applicable",
+        ],
+        properties: {
+          total: { type: "integer", minimum: 0 },
+          pass: { type: "integer", minimum: 0 },
+          fail: { type: "integer", minimum: 0 },
+          not_tested: { type: "integer", minimum: 0 },
+          blocked: { type: "integer", minimum: 0 },
+          not_applicable: { type: "integer", minimum: 0 },
+        },
+        additionalProperties: true,
+      },
     },
     additionalProperties: true,
   },
@@ -232,9 +394,10 @@ export const capSchemas: Record<SchemaName, object> = {
       version: versionOne,
       run_id: { type: "string" },
       decision: { enum: ["PASS", "FAIL", "HUMAN"] },
-      reason_codes: { type: "array" },
+      reason_codes: { type: "array", items: { type: "string" }, minItems: 1 },
       policy_version: { type: "string" },
       created_at: { type: "string" },
+      details: { type: "object" },
     },
     additionalProperties: true,
   },
