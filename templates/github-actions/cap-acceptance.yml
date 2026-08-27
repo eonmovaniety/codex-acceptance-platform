@@ -1,19 +1,141 @@
 name: CAP acceptance
 
 on:
-  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [master]
 
+concurrency:
+  group: cap-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('push-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Configure CAP_REPOSITORY, CAP_REF, CAP_SHA256, CAP_PROJECT_ID, and
+# CAP_TASK_ID as repository variables. CAP_REF must be a full CAP commit SHA.
 jobs:
   cap:
+    name: CAP acceptance gate
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 45
+    env:
+      CAP_REPOSITORY: ${{ vars.CAP_REPOSITORY }}
+      CAP_REF: ${{ vars.CAP_REF }}
+      CAP_SHA256: ${{ vars.CAP_SHA256 }}
+      CAP_PROJECT_ID: ${{ vars.CAP_PROJECT_ID }}
+      CAP_TASK_ID: ${{ vars.CAP_TASK_ID }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check CAP pin and project variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CAP_REPOSITORY}" || -z "${CAP_REF}" || -z "${CAP_PROJECT_ID}" || -z "${CAP_TASK_ID}" ]]; then
+            echo "CAP_REPOSITORY, CAP_REF, CAP_PROJECT_ID, and CAP_TASK_ID repository variables are required." >&2
+            exit 1
+          fi
+          if [[ ! "${CAP_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "CAP_REF must be a full 40-character commit SHA." >&2
+            exit 1
+          fi
+
+      - name: Resolve target commit
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "commit=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "source=ci_pull_request" >> "$GITHUB_OUTPUT"
+          else
+            echo "commit=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "source=ci_push" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout target commit
+        uses: actions/checkout@v4
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run acceptance -- doctor --json
-      - run: npm test
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ steps.target.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout pinned CAP
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CAP_REPOSITORY }}
+          ref: ${{ env.CAP_REF }}
+          path: .cap-tool
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Verify CAP commit and optional archive digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolved="$(git -C .cap-tool rev-parse HEAD)"
+          test "$resolved" = "${CAP_REF,,}"
+          if [[ -n "${CAP_SHA256}" ]]; then
+            actual="$(git -C .cap-tool archive --format=tar HEAD | sha256sum | awk '{print $1}')"
+            test "$actual" = "${CAP_SHA256,,}"
+          fi
+
+      - name: Build CAP
+        working-directory: .cap-tool
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Compile CAP
+        working-directory: .cap-tool
+        run: npm run build
+
+      - name: Initialize CAP project
+        id: cap
+        shell: bash
+        run: |
+          set -euo pipefail
+          cap_home="$RUNNER_TEMP/cap-home"
+          echo "home=$cap_home" >> "$GITHUB_OUTPUT"
+          node .cap-tool/dist/src/cli.js init --home "$cap_home" --json
+          node .cap-tool/dist/src/cli.js project add "$GITHUB_WORKSPACE" --home "$cap_home" --json
+
+      - name: Run authoritative CAP gate
+        id: acceptance
+        shell: bash
+        run: |
+          set -o pipefail
+          result_path="$RUNNER_TEMP/cap-result.json"
+          set +e
+          node .cap-tool/dist/src/cli.js automation enqueue \
+            --project "$CAP_PROJECT_ID" \
+            --task "$CAP_TASK_ID" \
+            --commit "${{ steps.target.outputs.commit }}" \
+            --source "${{ steps.target.outputs.source }}" \
+            --home "${{ steps.cap.outputs.home }}" \
+            --wait --json > "$result_path"
+          exit_code=$?
+          set -e
+          if [[ -s "$result_path" ]]; then
+            cat "$result_path"
+            run_id="$(node -e "const fs=require('node:fs'); const v=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(v.final_run?.id ?? v.run?.id ?? '')" "$result_path")"
+            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$exit_code"
+
+      - name: Upload CAP evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cap-acceptance-${{ steps.target.outputs.commit }}
+          path: ${{ steps.cap.outputs.home }}
+          if-no-files-found: warn
+
+      - name: Explain missing CAP result
+        if: failure() && steps.acceptance.outputs.run_id == ''
+        shell: bash
+        run: |
+          {
+            echo "## CAP acceptance";
+            echo;
+            echo "No final Run ID was produced. Inspect the job log and uploaded CAP evidence.";
+          } >> "$GITHUB_STEP_SUMMARY"

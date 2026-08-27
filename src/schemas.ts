@@ -17,6 +17,7 @@ export type SchemaName =
   | "risk-assessment"
   | "gate-policy"
   | "gate-decision"
+  | "acceptance-summary"
   | "atmosphere-engine-report"
   | "visual-case";
 
@@ -146,6 +147,70 @@ export const capSchemas: Record<SchemaName, object> = {
         },
         additionalProperties: true,
       },
+      automation: {
+        type: "object",
+        properties: {
+          enabled: { type: "boolean" },
+          tasks: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["task_id", "contract"],
+              properties: {
+                task_id: { type: "string", minLength: 1 },
+                contract: { type: "string", minLength: 1 },
+              },
+              additionalProperties: true,
+            },
+          },
+          local: {
+            type: "object",
+            properties: {
+              post_commit: { type: "boolean" },
+              worker: { type: "string" },
+              poll_seconds: { type: "integer", minimum: 1 },
+              concurrency: { type: "integer", minimum: 1 },
+            },
+            additionalProperties: true,
+          },
+          ci: {
+            type: "object",
+            properties: {
+              provider: { type: "string" },
+              pull_request: { type: "boolean" },
+              push_branches: { type: "array", items: { type: "string" } },
+              authoritative: { type: "boolean" },
+              cap_repository: { type: "string" },
+              cap_ref: { type: "string" },
+              cap_sha256: { type: "string" },
+            },
+            additionalProperties: true,
+          },
+          retry: {
+            type: "object",
+            properties: {
+              infrastructure_max_attempts: {
+                type: "integer",
+                minimum: 0,
+                maximum: 10,
+              },
+            },
+            additionalProperties: true,
+          },
+          notifications: {
+            type: "object",
+            properties: {
+              terminal: { type: "boolean" },
+              windows_toast: { type: "boolean" },
+              ci_summary: { type: "boolean" },
+              progress_after_seconds: { type: "integer", minimum: 1 },
+              progress_interval_seconds: { type: "integer", minimum: 1 },
+            },
+            additionalProperties: true,
+          },
+        },
+        additionalProperties: true,
+      },
       reviewer: {
         type: "object",
         properties: {
@@ -232,6 +297,9 @@ export const capSchemas: Record<SchemaName, object> = {
       "contract_version",
       "test_data_version",
       "gate_policy_version",
+      "trigger_source",
+      "execution_scope",
+      "attempt",
       "created_at",
       "immutable",
     ],
@@ -244,6 +312,10 @@ export const capSchemas: Record<SchemaName, object> = {
       contract_version: { type: "string", minLength: 1 },
       test_data_version: { type: "string", minLength: 1 },
       gate_policy_version: { type: "string", minLength: 1 },
+      trigger_source: { type: "string", minLength: 1 },
+      execution_scope: { type: "string", minLength: 1 },
+      attempt: { type: "integer", minimum: 1 },
+      retry_of: { type: "string", minLength: 1 },
       created_at: { type: "string" },
       immutable: { const: true },
     },
@@ -733,6 +805,51 @@ export const capSchemas: Record<SchemaName, object> = {
       policy_version: { type: "string" },
       created_at: { type: "string" },
       details: { type: "object" },
+    },
+    additionalProperties: true,
+  },
+  "acceptance-summary": {
+    type: "object",
+    required: [
+      "version",
+      "run_id",
+      "project_id",
+      "task_id",
+      "trigger_source",
+      "execution_scope",
+      "attempt",
+      "target_commit",
+      "status",
+      "coverage",
+      "stage_results",
+      "findings",
+      "not_tested",
+      "evidence_refs",
+      "next_action",
+      "notification_deliveries",
+    ],
+    properties: {
+      version: versionOne,
+      run_id: { type: "string", minLength: 1 },
+      project_id: { type: "string", minLength: 1 },
+      task_id: { type: "string", minLength: 1 },
+      trigger_source: { type: "string", minLength: 1 },
+      execution_scope: { type: "string", minLength: 1 },
+      attempt: { type: "integer", minimum: 1 },
+      target_commit: { type: "string", minLength: 7 },
+      status: { type: "string", minLength: 1 },
+      decision: { type: "string" },
+      gate: { type: "object" },
+      coverage: { type: "object" },
+      stage_results: { type: "object" },
+      findings: { type: "object" },
+      not_tested: { type: "array", items: { type: "string" } },
+      evidence_refs: { type: "array", items: { type: "string" } },
+      next_action: { type: "string", minLength: 1 },
+      started_at: { type: "string" },
+      completed_at: { type: "string" },
+      duration_seconds: { type: "number", minimum: 0 },
+      notification_deliveries: { type: "object" },
     },
     additionalProperties: true,
   },

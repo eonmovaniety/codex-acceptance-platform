@@ -39,6 +39,21 @@ export class DashboardApi {
         this.send(response, 200, { ok: true, service: "cap-dashboard-api" });
         return;
       }
+      if (
+        parts.length === 3 &&
+        parts[0] === "api" &&
+        parts[1] === "automation" &&
+        parts[2] === "jobs"
+      ) {
+        const notifications = this.store
+          .listNotificationOutbox(["PENDING", "SENDING", "FAILED", "SENT"])
+          .map((item) => this.notificationView(item));
+        this.send(response, 200, {
+          jobs: this.store.listAutomationJobs(),
+          notifications,
+        });
+        return;
+      }
       if (parts.length === 2 && parts[0] === "api" && parts[1] === "projects") {
         this.send(response, 200, { projects: this.store.listProjects() });
         return;
@@ -52,6 +67,25 @@ export class DashboardApi {
           });
           return;
         }
+        if (parts.length === 4 && parts[3] === "automation") {
+          const jobs = this.store.listAutomationJobs(projectId);
+          const jobIds = new Set(jobs.map((job) => job.id));
+          const notifications = this.store
+            .listNotificationOutbox(["PENDING", "SENDING", "FAILED", "SENT"])
+            .filter(
+              (item) =>
+                (item.jobId !== undefined && jobIds.has(item.jobId)) ||
+                (item.runId !== undefined &&
+                  jobs.some((job) => job.runId === item.runId)),
+            )
+            .map((item) => this.notificationView(item));
+          this.send(response, 200, {
+            project_id: projectId,
+            jobs,
+            notifications,
+          });
+          return;
+        }
         this.send(response, 200, { project: this.store.getProject(projectId) });
         return;
       }
@@ -61,7 +95,12 @@ export class DashboardApi {
         if (parts.length === 3) {
           this.send(response, 200, {
             run,
+            automation_job: this.store.findAutomationJobByRunId(runId),
             events: this.store.listEvents(runId),
+            notifications: this.store
+              .listNotificationOutbox(["PENDING", "SENDING", "FAILED", "SENT"])
+              .filter((item) => item.runId === runId)
+              .map((item) => this.notificationView(item)),
             artifacts: this.artifacts.listRelativePaths(
               run.projectId,
               run.taskId,
@@ -176,6 +215,15 @@ export class DashboardApi {
     }
   }
 
+  private notificationView(
+    item: ReturnType<SqliteStore["getNotificationOutbox"]>,
+  ) {
+    return {
+      ...item,
+      deliveries: this.store.listNotificationDeliveries(item.id),
+    };
+  }
+
   private send(response: ServerResponse, status: number, body: unknown): void {
     response.writeHead(status, {
       "content-type": "application/json; charset=utf-8",
@@ -261,6 +309,27 @@ const dashboardHtml = `<!doctype html>
           code.textContent = project.id;
           identifier.appendChild(code);
           card.append(title, identifier);
+          const automation = await fetch('/api/projects/' + encodeURIComponent(project.id) + '/automation').then((response) => response.json());
+          const jobs = document.createElement('p');
+          jobs.textContent = 'Automation jobs: ' + automation.jobs.length;
+          card.appendChild(jobs);
+          const notifications = document.createElement('p');
+          const sent = automation.notifications.filter((item) => item.status === 'SENT').length;
+          notifications.textContent = 'Notifications: ' + sent + '/' + automation.notifications.length + ' sent';
+          card.appendChild(notifications);
+          for (const job of automation.jobs.slice(-5).reverse()) {
+            const row = document.createElement('p');
+            row.className = 'muted';
+            row.textContent = job.id + ' · ' + job.status + (job.runId ? ' · ' + job.runId : '');
+            card.appendChild(row);
+          }
+          for (const notification of automation.notifications.slice(-5).reverse()) {
+            const row = document.createElement('p');
+            row.className = 'muted';
+            const deliveries = notification.deliveries.map((delivery) => delivery.channel + '=' + delivery.status).join(', ');
+            row.textContent = notification.eventType + ' · ' + notification.status + (deliveries ? ' · ' + deliveries : '');
+            card.appendChild(row);
+          }
           content.appendChild(card);
         }
         const humans = document.createElement('article');

@@ -12,6 +12,29 @@
     },
     "display_name": { "type": "string", "minLength": 1 },
     "repository": { "type": "object" },
+    "automation": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["task_id", "contract"],
+            "properties": {
+              "task_id": { "type": "string", "minLength": 1 },
+              "contract": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": true
+          }
+        },
+        "local": { "type": "object" },
+        "ci": { "type": "object" },
+        "retry": { "type": "object" },
+        "notifications": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
     "reviewer": {
       "type": "object",
       "properties": {

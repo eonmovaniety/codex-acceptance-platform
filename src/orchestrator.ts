@@ -61,6 +61,12 @@ import {
   type VisualCaptureResult,
 } from "./visual.js";
 import { WorktreeManager, type WorktreeRecord } from "./worktree.js";
+import {
+  buildAcceptanceSummary,
+  createNotificationOutbox,
+  notificationChannelsFor,
+  renderSummaryMarkdown,
+} from "./notifications.js";
 
 export interface AcceptanceRunExecutorDependencies {
   store: SqliteStore;
@@ -154,6 +160,10 @@ export class AcceptanceRunExecutor {
       contract_version: run.contractVersion,
       test_data_version: run.testDataVersion,
       gate_policy_version: run.gatePolicyVersion,
+      trigger_source: run.triggerSource ?? "manual",
+      execution_scope: run.executionScope ?? "local",
+      attempt: run.attempt ?? 1,
+      ...(run.retryOf === undefined ? {} : { retry_of: run.retryOf }),
       created_at: run.createdAt,
       immutable: true,
     };
@@ -299,7 +309,7 @@ export class AcceptanceRunExecutor {
       run = this.updateRunStatus(run, "GATING", "RunGating");
       const matrix = buildAcceptanceMatrix(contract, reviewReport, evidence);
       writeAcceptanceMatrix(this.artifacts, project.id, task.id, matrix);
-      const configuredPolicy = gatePolicy(config, project.configPath);
+      const configuredPolicy = loadGatePolicy(config, project.configPath);
       const gate = decideGate({
         matrix,
         report: reviewReport,
@@ -316,7 +326,7 @@ export class AcceptanceRunExecutor {
       });
       writeGateDecision(this.artifacts, project.id, task.id, gate);
       run = this.completeRun(run, gate.decision);
-      const finalTask = this.completeTask(task, gate.decision);
+      const finalTask = this.completeTask(task, gate.decision, run);
       this.dependencies.store.appendEvent(run.id, "GateDecided", {
         decision: gate.decision,
         reason_codes: gate.reason_codes,
@@ -353,8 +363,41 @@ export class AcceptanceRunExecutor {
         });
       }
       this.captureAndResetReviewerWorktree(worktree, project, task, run);
+      const summary = buildAcceptanceSummary({
+        run,
+        project,
+        matrix,
+        gate,
+        verifierResults,
+        reviewerReport: reviewReport,
+        evidencePaths: [
+          ...evidencePaths,
+          "evidence/index.json",
+          "reviewer/report.json",
+          "acceptance/matrix.json",
+          "acceptance/gate-decision.json",
+        ],
+      });
+      validateDocument("acceptance-summary", summary);
+      this.artifacts.writeJson(
+        project.id,
+        task.id,
+        run.id,
+        "acceptance/summary.json",
+        summary,
+      );
+      this.artifacts.writeText(
+        project.id,
+        task.id,
+        run.id,
+        "acceptance/summary.md",
+        renderSummaryMarkdown(summary),
+      );
       this.artifacts.finalize(project.id, task.id, run.id);
-      this.dependencies.store.appendEvent(run.id, "ArtifactsFinalized", {});
+      this.dependencies.store.withTransaction(() => {
+        this.dependencies.store.appendEvent(run.id, "ArtifactsFinalized", {});
+        this.enqueueFinalNotification(run, project, config, gate.decision);
+      });
       return { run, task: finalTask, verifierResults, visual, matrix, gate };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -392,9 +435,46 @@ export class AcceptanceRunExecutor {
         }
       }
       try {
+        const summary = buildAcceptanceSummary({
+          run,
+          project,
+          evidencePaths: ["run/error.json"],
+          nextAction:
+            "检查 run/error.json；自动化 Worker 将按策略重试基础设施失败。",
+        });
+        validateDocument("acceptance-summary", summary);
+        this.artifacts.writeJson(
+          project.id,
+          task.id,
+          run.id,
+          "acceptance/summary.json",
+          summary,
+        );
+        this.artifacts.writeText(
+          project.id,
+          task.id,
+          run.id,
+          "acceptance/summary.md",
+          renderSummaryMarkdown(summary),
+        );
         this.artifacts.finalize(project.id, task.id, run.id);
       } catch {
         // Preserve the original execution error.
+      }
+      try {
+        if (run.triggerSource && run.triggerSource !== "manual") {
+          this.dependencies.store.withTransaction(() => {
+            this.enqueueFinalNotification(
+              run,
+              project,
+              config,
+              run.decision,
+              "automation.failed",
+            );
+          });
+        }
+      } catch {
+        // Notification persistence must never replace the original failure.
       }
       throw error;
     } finally {
@@ -617,25 +697,95 @@ export class AcceptanceRunExecutor {
     });
   }
 
-  private completeTask(task: Task, decision: AcceptanceRun["decision"]): Task {
+  private completeTask(
+    task: Task,
+    decision: AcceptanceRun["decision"],
+    run: AcceptanceRun,
+  ): Task {
     if (!decision)
       throw new CapError("Gate decision is required", "GATE_DECISION_MISSING");
+    if (
+      run.triggerSource === "post_commit" &&
+      (run.executionScope ?? "local") === "local"
+    ) {
+      const activeCiRun = this.dependencies.store
+        .listRuns(run.projectId, run.taskId)
+        .some(
+          (candidate) =>
+            (candidate.executionScope ?? "local") === "ci" &&
+            ![
+              "INVALID",
+              "COMPLETED_PASS",
+              "COMPLETED_FAIL",
+              "COMPLETED_HUMAN",
+              "CANCELLED",
+            ].includes(candidate.status),
+        );
+      if (activeCiRun || task.status !== "IN_ACCEPTANCE") return task;
+      return this.dependencies.store.updateTask({
+        ...task,
+        status: transitionTask(task.status, "READY_FOR_REVIEW"),
+        updatedAt: this.clock.now(),
+      });
+    }
+    const isAuthoritative =
+      run.triggerSource === "manual" ||
+      (run.executionScope ?? "local") === "ci";
     const nextStatus =
       decision === "PASS"
-        ? transitionTask(task.status, "ACCEPTED")
+        ? isAuthoritative
+          ? transitionTask(task.status, "ACCEPTED")
+          : transitionTask(task.status, "READY_FOR_REVIEW")
         : decision === "FAIL"
           ? transitionTask(task.status, "FIX_REQUESTED")
           : transitionTask(task.status, "NEEDS_HUMAN");
     const next = {
       ...task,
       status: nextStatus,
-      ...(decision === "PASS"
+      ...(decision === "PASS" && isAuthoritative
         ? { acceptedCommit: task.lastSubmittedCommit }
         : {}),
       ...(decision === "FAIL" ? { failureCount: task.failureCount + 1 } : {}),
       updatedAt: this.clock.now(),
     };
     return this.dependencies.store.updateTask(next);
+  }
+
+  private enqueueFinalNotification(
+    run: AcceptanceRun,
+    project: Project,
+    config: ProjectConfig,
+    decision: AcceptanceRun["decision"],
+    overrideEventType?: string,
+  ): void {
+    const source = run.triggerSource;
+    if (!source || source === "manual") return;
+    const eventType =
+      overrideEventType ??
+      (decision === "PASS"
+        ? "automation.completed"
+        : decision === "FAIL"
+          ? "automation.failed"
+          : "automation.human_required");
+    const channels = notificationChannelsFor(config, source, eventType);
+    if (channels.length === 0) return;
+    const outbox = createNotificationOutbox({
+      eventType,
+      runId: run.id,
+      source,
+      channels,
+      payload: {
+        status: run.status,
+        ...(decision === undefined ? {} : { decision }),
+      },
+      now: () => this.clock.now(),
+    });
+    if (
+      !this.dependencies.store.findNotificationOutboxByDedupeKey(
+        outbox.dedupeKey,
+      )
+    )
+      this.dependencies.store.createNotificationOutbox(outbox);
   }
 
   private captureAndResetReviewerWorktree(
@@ -662,7 +812,7 @@ function createVerifierAdapter(config: ProjectConfig) {
   return new GenericCommandAdapter();
 }
 
-function gatePolicy(
+export function loadGatePolicy(
   config: ProjectConfig,
   projectConfigPath: string,
 ): GatePolicy | undefined {

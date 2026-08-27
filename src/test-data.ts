@@ -111,6 +111,7 @@ export class TestDataManager {
         CAP_ACCEPTANCE_RUN_ID: context.runId,
         CAP_TEST_DATA_STAGE: stage,
         CAP_TEST_DATA_VERSION: context.config.test_data?.version ?? "v1",
+        CAP_AUTOMATION_RUN: "1",
       },
     });
     if (result.timedOut || result.exitCode !== 0)

@@ -100,6 +100,7 @@ export class GenericCommandAdapter implements AcceptanceAdapter {
             CAP_PROJECT_ID: context.projectId,
             CAP_TASK_ID: context.taskId,
             CAP_TARGET_COMMIT: context.targetCommit,
+            CAP_AUTOMATION_RUN: "1",
           },
         });
         context.assertTarget();

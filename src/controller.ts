@@ -3,14 +3,20 @@ import type {
   AcceptanceContract,
   AcceptanceRun,
   ContractRecord,
+  ExecutionScope,
   Project,
   ProjectConfig,
   RequirementRecord,
+  RunTriggerSource,
   SubmitResult,
   Task,
 } from "./domain.js";
 import { CapError, NotFoundError } from "./errors.js";
-import { createIdempotencyKey, createRunId } from "./ids.js";
+import {
+  createIdempotencyKey,
+  createRetryIdempotencyKey,
+  createRunId,
+} from "./ids.js";
 import { transitionTask } from "./state-machine.js";
 import { SqliteStore, systemClock, type Clock } from "./storage.js";
 import { sha256FileSync } from "./config.js";
@@ -20,6 +26,15 @@ export interface ControllerDependencies {
   store: SqliteStore;
   git: GitClient;
   clock?: Clock;
+}
+
+export interface SubmitOptions {
+  triggerSource?: RunTriggerSource;
+  executionScope?: ExecutionScope;
+  attempt?: number;
+  retryOf?: string;
+  allowDirty?: boolean;
+  blockedReason?: string;
 }
 
 export class AcceptanceController {
@@ -89,6 +104,7 @@ export class AcceptanceController {
     contract: AcceptanceContract,
     contractPath: string,
     requestedCommit: string,
+    options: SubmitOptions = {},
   ): SubmitResult {
     if (contract.task_id.length === 0)
       throw new CapError("Contract task_id is required", "CONTRACT_INVALID");
@@ -98,6 +114,7 @@ export class AcceptanceController {
     );
     if (
       config.repository.require_clean_submission &&
+      !options.allowDirty &&
       this.dependencies.git.statusPorcelain(project.repoPath).trim()
     ) {
       throw new CapError(
@@ -106,6 +123,11 @@ export class AcceptanceController {
       );
     }
 
+    const triggerSource = options.triggerSource ?? "manual";
+    const executionScope =
+      options.executionScope ??
+      (triggerSource.startsWith("ci_") ? "ci" : "local");
+    const attempt = options.attempt ?? 1;
     return this.dependencies.store.withTransaction(() => {
       const task = this.ensureTask(project, contract);
       const contractHash = sha256FileSync(contractPath);
@@ -114,6 +136,9 @@ export class AcceptanceController {
         task.id,
         targetCommit,
         contractHash,
+        config.test_data?.version ?? "v1",
+        config.gate?.policy_version ?? "v1",
+        executionScope,
       );
       const existingRun =
         this.dependencies.store.findRunByIdempotencyKey(idempotencyKey);
@@ -146,13 +171,23 @@ export class AcceptanceController {
       ) {
         task.status = transitionTask(task.status, "READY_FOR_REVIEW");
       }
-      if (task.status !== "READY_FOR_REVIEW") {
+      const parallelScopeRun =
+        task.status === "IN_ACCEPTANCE" &&
+        this.dependencies.store
+          .listRuns(project.id, task.id)
+          .some(
+            (candidate) =>
+              candidate.targetCommit === targetCommit &&
+              (candidate.executionScope ?? "local") !== executionScope,
+          );
+      if (task.status !== "READY_FOR_REVIEW" && !parallelScopeRun) {
         throw new CapError(
           `Task '${task.id}' is not ready for a new acceptance run: ${task.status}`,
           "TASK_NOT_READY",
         );
       }
-      task.status = transitionTask(task.status, "IN_ACCEPTANCE");
+      if (task.status === "READY_FOR_REVIEW")
+        task.status = transitionTask(task.status, "IN_ACCEPTANCE");
       task.currentContractVersion = contractRecord.version;
       task.lastSubmittedCommit = targetCommit;
       task.updatedAt = this.clock.now();
@@ -167,7 +202,11 @@ export class AcceptanceController {
         testDataVersion: config.test_data?.version ?? "v1",
         gatePolicyVersion: config.gate?.policy_version ?? "v1",
         idempotencyKey,
-        status: "CREATED",
+        status: options.blockedReason === undefined ? "CREATED" : "BLOCKED",
+        triggerSource,
+        executionScope,
+        attempt,
+        ...(options.retryOf === undefined ? {} : { retryOf: options.retryOf }),
         createdAt: this.clock.now(),
       };
       this.dependencies.store.createRun(run);
@@ -180,6 +219,25 @@ export class AcceptanceController {
       this.dependencies.store.appendEvent(run.id, "RunCreated", {
         run_id: run.id,
       });
+      if (options.blockedReason !== undefined) {
+        const blockedTask = this.dependencies.store.getTask(
+          project.id,
+          task.id,
+        );
+        const nextTask =
+          blockedTask.status === "IN_ACCEPTANCE"
+            ? {
+                ...blockedTask,
+                status: transitionTask(blockedTask.status, "READY_FOR_REVIEW"),
+                updatedAt: this.clock.now(),
+              }
+            : blockedTask;
+        if (nextTask !== blockedTask)
+          this.dependencies.store.updateTask(nextTask);
+        this.dependencies.store.appendEvent(run.id, "RunBlocked", {
+          reason: options.blockedReason,
+        });
+      }
       return { run, existing: false };
     });
   }
@@ -228,6 +286,54 @@ export class AcceptanceController {
       target_commit: run.targetCommit,
     });
     return next;
+  }
+
+  retryInfrastructureRun(previous: AcceptanceRun): AcceptanceRun {
+    if (previous.status !== "INFRA_FAILED")
+      throw new CapError(
+        `Only infrastructure-failed Runs can be retried: ${previous.id}`,
+        "RUN_RETRY_INVALID",
+      );
+    const executionScope = previous.executionScope ?? "local";
+    const attempt = (previous.attempt ?? 1) + 1;
+    const idempotencyKey = createRetryIdempotencyKey(
+      previous.idempotencyKey,
+      attempt,
+    );
+    const existing =
+      this.dependencies.store.findRunByIdempotencyKey(idempotencyKey);
+    if (existing) return existing;
+    const retry: AcceptanceRun = {
+      id: createRunId(this.clock),
+      projectId: previous.projectId,
+      taskId: previous.taskId,
+      targetCommit: previous.targetCommit,
+      contractVersion: previous.contractVersion,
+      testDataVersion: previous.testDataVersion,
+      gatePolicyVersion: previous.gatePolicyVersion,
+      idempotencyKey,
+      status: "CREATED",
+      ...(previous.triggerSource === undefined
+        ? {}
+        : { triggerSource: previous.triggerSource }),
+      executionScope,
+      attempt,
+      retryOf: previous.id,
+      createdAt: this.clock.now(),
+    };
+    this.dependencies.store.withTransaction(() => {
+      this.dependencies.store.createRun(retry);
+      this.dependencies.store.appendEvent(previous.id, "RunRetryCreated", {
+        retry_run_id: retry.id,
+        attempt,
+      });
+      this.dependencies.store.appendEvent(retry.id, "RunCreated", {
+        run_id: retry.id,
+        retry_of: previous.id,
+        attempt,
+      });
+    });
+    return retry;
   }
 
   beginFix(projectId: string, taskId: string): Task {

@@ -6,6 +6,7 @@ const taskTransitions: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
   READY_FOR_REVIEW: ["IN_ACCEPTANCE"],
   IN_ACCEPTANCE: [
     "ACCEPTED",
+    "READY_FOR_REVIEW",
     "FIX_REQUESTED",
     "NEEDS_HUMAN",
     "BLOCKED",
@@ -20,7 +21,7 @@ const taskTransitions: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
 };
 
 const runTransitions: Readonly<Record<RunStatus, readonly RunStatus[]>> = {
-  CREATED: ["VALIDATING", "CANCELLED"],
+  CREATED: ["VALIDATING", "BLOCKED", "CANCELLED"],
   VALIDATING: ["PREPARING", "INVALID", "INFRA_FAILED", "CANCELLED"],
   PREPARING: ["VERIFYING", "INFRA_FAILED", "CANCELLED"],
   INVALID: [],
@@ -28,6 +29,7 @@ const runTransitions: Readonly<Record<RunStatus, readonly RunStatus[]>> = {
   REVIEWING: ["GATING", "INFRA_FAILED", "CANCELLED"],
   GATING: ["COMPLETED_PASS", "COMPLETED_FAIL", "COMPLETED_HUMAN"],
   INFRA_FAILED: [],
+  BLOCKED: [],
   COMPLETED_PASS: [],
   COMPLETED_FAIL: [],
   COMPLETED_HUMAN: [],

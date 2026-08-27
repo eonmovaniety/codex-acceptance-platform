@@ -21,6 +21,7 @@ export const runStatuses = [
   "REVIEWING",
   "GATING",
   "INFRA_FAILED",
+  "BLOCKED",
   "COMPLETED_PASS",
   "COMPLETED_FAIL",
   "COMPLETED_HUMAN",
@@ -32,6 +33,73 @@ export type RunDecision = "PASS" | "FAIL" | "HUMAN";
 export type RiskLevel = "R0" | "R1" | "R2" | "R3";
 export type Criticality = "core" | "major" | "minor";
 export type EvidenceLevel = "E0" | "E1" | "E2" | "E3" | "E4" | "E5";
+
+export const runTriggerSources = [
+  "manual",
+  "post_commit",
+  "ci_pull_request",
+  "ci_push",
+] as const;
+
+export type RunTriggerSource = (typeof runTriggerSources)[number];
+export type ExecutionScope = "local" | "ci";
+
+export const automationJobStatuses = [
+  "QUEUED",
+  "CLAIMED",
+  "RUNNING",
+  "RETRY_WAIT",
+  "SUCCEEDED",
+  "FAILED",
+  "BLOCKED",
+  "DEAD_LETTER",
+] as const;
+
+export type AutomationJobStatus = (typeof automationJobStatuses)[number];
+
+export const notificationStatuses = [
+  "PENDING",
+  "SENDING",
+  "SENT",
+  "FAILED",
+] as const;
+
+export type NotificationStatus = (typeof notificationStatuses)[number];
+
+export interface AutomationTaskConfig {
+  task_id: string;
+  contract: string;
+}
+
+export interface AutomationConfig {
+  enabled?: boolean;
+  tasks?: AutomationTaskConfig[];
+  local?: {
+    post_commit?: boolean;
+    worker?: "login_resident" | "on_demand" | string;
+    poll_seconds?: number;
+    concurrency?: number;
+  };
+  ci?: {
+    provider?: "github-actions" | string;
+    pull_request?: boolean;
+    push_branches?: string[];
+    authoritative?: boolean;
+    cap_repository?: string;
+    cap_ref?: string;
+    cap_sha256?: string;
+  };
+  retry?: {
+    infrastructure_max_attempts?: number;
+  };
+  notifications?: {
+    terminal?: boolean;
+    windows_toast?: boolean;
+    ci_summary?: boolean;
+    progress_after_seconds?: number;
+    progress_interval_seconds?: number;
+  };
+}
 
 export interface ProjectConfig {
   version: 1;
@@ -94,6 +162,7 @@ export interface ProjectConfig {
     policy_version?: string;
   };
   human_gates?: string[];
+  automation?: AutomationConfig;
 }
 
 export interface ContractRequirement {
@@ -182,9 +251,62 @@ export interface AcceptanceRun {
   status: RunStatus;
   decision?: RunDecision;
   reviewerThreadId?: string;
+  triggerSource?: RunTriggerSource;
+  executionScope?: ExecutionScope;
+  attempt?: number;
+  retryOf?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+}
+
+export interface AutomationJob {
+  id: string;
+  projectId: string;
+  taskId: string;
+  runId?: string;
+  source: Exclude<RunTriggerSource, "manual">;
+  executionScope: ExecutionScope;
+  eventId: string;
+  idempotencyKey: string;
+  status: AutomationJobStatus;
+  attempts: number;
+  maxAttempts: number;
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
+  nextAttemptAt: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface NotificationOutboxItem {
+  id: string;
+  runId?: string;
+  jobId?: string;
+  eventType: string;
+  dedupeKey: string;
+  payload: Record<string, unknown>;
+  status: NotificationStatus;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError?: string;
+  createdAt: string;
+  sentAt?: string;
+}
+
+export interface NotificationDelivery {
+  id: string;
+  outboxId: string;
+  channel: string;
+  status: NotificationStatus;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError?: string;
+  createdAt: string;
+  sentAt?: string;
 }
 
 export interface RunEvent {

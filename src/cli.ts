@@ -28,6 +28,14 @@ import {
 } from "./review.js";
 import { DashboardApi, DashboardServer } from "./dashboard.js";
 import { BaselineStore } from "./visual.js";
+import {
+  AutomationService,
+  AutomationWorker,
+  ensureAutomationSourceEnabled,
+  installAutomation,
+  uninstallAutomation,
+  type AutomationSource,
+} from "./automation.js";
 
 export const helpText = `Codex Acceptance Platform (CAP)
 
@@ -43,6 +51,9 @@ Commands:
   task create <project> <id>   Register a task
   acceptance submit            Submit an immutable target commit
   run start|execute|status|logs Manage an acceptance run
+  automation install|uninstall Install or remove post-commit automation
+  automation enqueue|worker   Enqueue or execute automated acceptance
+  automation status            Show automation jobs and delivery state
   fix start <project> <task>  Start a Builder fix cycle from FIX_REQUESTED
   dashboard serve              Serve the read-only local Dashboard API
   findings list <run>          List structured findings
@@ -139,6 +150,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         return;
       case "run":
         await handleRun(positionals, values, home);
+        return;
+      case "automation":
+        await handleAutomation(positionals, values, home);
         return;
       case "fix":
         await handleFix(positionals, values, home);
@@ -429,6 +443,224 @@ async function handleRun(
   } finally {
     store.close();
   }
+}
+
+async function handleAutomation(
+  positionals: string[],
+  values: ParsedOptions["values"],
+  home: AcceptanceHomePaths,
+): Promise<void> {
+  const subcommand = positionals[0];
+  if (!subcommand)
+    throw new CapError(
+      "Usage: acceptance automation install|uninstall|enqueue|worker|status ...",
+      "ARGUMENT_ERROR",
+    );
+  await ensureAcceptanceHome(home);
+  const store = new SqliteStore(databasePath(home));
+  const git = new CliGitClient();
+  try {
+    if (subcommand === "install") {
+      const projectId = projectOption(positionals, values);
+      const project = new AcceptanceController({
+        store,
+        git,
+      }).getProjectOrThrow(projectId);
+      const config = await loadProjectConfig(project.configPath);
+      ensureAutomationSourceEnabled(config, "post_commit");
+      const taskId = taskOption(positionals, values, config);
+      print(
+        installAutomation({
+          projectId,
+          taskId,
+          repoPath: project.repoPath,
+          git,
+          home,
+        }),
+        values.json === true,
+      );
+      return;
+    }
+    if (subcommand === "uninstall") {
+      const projectId = projectOption(positionals, values);
+      const project = new AcceptanceController({
+        store,
+        git,
+      }).getProjectOrThrow(projectId);
+      print(
+        uninstallAutomation({ repoPath: project.repoPath, git }),
+        values.json === true,
+      );
+      return;
+    }
+    if (subcommand === "enqueue") {
+      const projectId = projectOption(positionals, values);
+      const taskId = asString(values.task);
+      const source = parseAutomationSource(asString(values.source));
+      if (!taskId) throw new CapError("--task is required", "ARGUMENT_ERROR");
+      const service = new AutomationService({ store, home, git });
+      const eventId = asString(values["event-id"]);
+      const result = await service.enqueue({
+        projectId,
+        taskId,
+        commit: asString(values.commit) ?? "HEAD",
+        source,
+        ...(eventId === undefined ? {} : { eventId }),
+        bestEffort: values["best-effort"] === true,
+      });
+      if (values.wait === true) {
+        if (!result.run)
+          throw new CapError(
+            `Automation job ${result.job.id} has no executable Run`,
+            "AUTOMATION_BLOCKED",
+          );
+        const finalRun = await new AutomationWorker({
+          store,
+          home,
+          git,
+        }).runUntil(result.run.id);
+        print({ ...result, final_run: finalRun }, values.json === true);
+        if (finalRun.status !== "COMPLETED_PASS") process.exitCode = 1;
+      } else {
+        print(result, values.json === true);
+      }
+      return;
+    }
+    if (subcommand === "worker") {
+      const worker = new AutomationWorker({ store, home, git });
+      if (values.once === true) {
+        print(await worker.runOnce(), values.json === true);
+        return;
+      }
+      const portValue = asString(values.port);
+      const port = portValue === undefined ? 4173 : Number(portValue);
+      if (!Number.isInteger(port) || port < 0 || port > 65_535)
+        throw new CapError(
+          `Invalid automation dashboard port '${portValue}'`,
+          "ARGUMENT_ERROR",
+        );
+      const dashboard = new DashboardServer(
+        new DashboardApi(store, new ArtifactStore(home), home),
+      );
+      try {
+        const actualPort = await dashboard.listen(port);
+        console.log(
+          `CAP automation dashboard: http://127.0.0.1:${String(actualPort)}`,
+        );
+      } catch (error) {
+        console.error(
+          `CAP automation dashboard unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      const stop = (): void => worker.requestStop();
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      try {
+        const projectId = asString(values.project);
+        const projectConfig = projectId
+          ? await loadProjectConfig(store.getProject(projectId).configPath)
+          : undefined;
+        await worker.runForever(
+          projectConfig?.automation?.local?.poll_seconds ?? 5,
+        );
+      } finally {
+        process.off("SIGINT", stop);
+        process.off("SIGTERM", stop);
+        await dashboard.close();
+      }
+      return;
+    }
+    if (subcommand === "status") {
+      const projectId = asString(values.project);
+      const runId = asString(values.run);
+      const render = (): unknown => {
+        const jobs = store
+          .listAutomationJobs(projectId)
+          .filter((job) => !runId || job.runId === runId);
+        const jobIds = new Set(jobs.map((job) => job.id));
+        const notifications = store
+          .listNotificationOutbox(["PENDING", "SENDING", "FAILED", "SENT"])
+          .filter(
+            (item) =>
+              (item.jobId !== undefined && jobIds.has(item.jobId)) ||
+              (item.runId !== undefined &&
+                jobs.some((job) => job.runId === item.runId)),
+          );
+        return { jobs, notifications };
+      };
+      if (values.watch !== true) {
+        print(render(), values.json === true);
+        return;
+      }
+      let stopped = false;
+      const stop = (): void => {
+        stopped = true;
+      };
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      try {
+        while (!stopped) {
+          print(render(), values.json === true);
+          await sleep(1000);
+        }
+      } finally {
+        process.off("SIGINT", stop);
+        process.off("SIGTERM", stop);
+      }
+      return;
+    }
+    throw new CapError(
+      `Unknown automation subcommand '${subcommand}'`,
+      "ARGUMENT_ERROR",
+    );
+  } finally {
+    store.close();
+  }
+}
+
+function projectOption(
+  positionals: string[],
+  values: ParsedOptions["values"],
+): string {
+  const projectId = asString(values.project) ?? positionals[1];
+  if (!projectId) throw new CapError("--project is required", "ARGUMENT_ERROR");
+  return projectId;
+}
+
+function taskOption(
+  positionals: string[],
+  values: ParsedOptions["values"],
+  config: ProjectConfig,
+): string {
+  const taskId =
+    asString(values.task) ??
+    positionals[2] ??
+    config.automation?.tasks?.[0]?.task_id;
+  if (!taskId)
+    throw new CapError(
+      "--task is required when automation has more than one or no configured task",
+      "ARGUMENT_ERROR",
+    );
+  return taskId;
+}
+
+function parseAutomationSource(value: string | undefined): AutomationSource {
+  if (
+    value === "post_commit" ||
+    value === "ci_pull_request" ||
+    value === "ci_push"
+  )
+    return value;
+  throw new CapError(
+    "--source must be post_commit, ci_pull_request, or ci_push",
+    "ARGUMENT_ERROR",
+  );
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolvePromise) =>
+    setTimeout(resolvePromise, milliseconds),
+  );
 }
 
 function createForcedProvider(

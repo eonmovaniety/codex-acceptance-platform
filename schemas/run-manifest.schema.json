@@ -12,6 +12,9 @@
     "contract_version",
     "test_data_version",
     "gate_policy_version",
+    "trigger_source",
+    "execution_scope",
+    "attempt",
     "created_at",
     "immutable"
   ],
@@ -24,6 +27,10 @@
     "contract_version": { "type": "string", "minLength": 1 },
     "test_data_version": { "type": "string", "minLength": 1 },
     "gate_policy_version": { "type": "string", "minLength": 1 },
+    "trigger_source": { "type": "string", "minLength": 1 },
+    "execution_scope": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "retry_of": { "type": "string", "minLength": 1 },
     "created_at": { "type": "string", "format": "date-time" },
     "immutable": { "const": true }
   },

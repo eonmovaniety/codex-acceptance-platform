@@ -41,6 +41,7 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Added optional Visual Case token/geometry audits, `visual/audit.json`, and Gate evaluation of their structured S2 findings.
 - Added a read-only local Dashboard API and browser view for projects, Runs, timelines, coverage, artifacts, and Human requests.
 - Added a non-destructive retention planner and a GitHub Actions acceptance template.
+- Added opt-in commit-triggered automation: exact-SHA local/CI Jobs, SQLite leases and Attempt retries, managed post-commit hook and Windows login Worker, notification Outbox/Deliveries, Windows Toast/terminal/CI Summary adapters, automation Dashboard views, per-Run acceptance summaries, and the AtmosphereEngine CI Workflow.
 
 ## Phase 0 exit-gate evidence
 
@@ -115,6 +116,20 @@ Attached document: engineering requirements and a staged implementation plan. It
 - Dashboard HTTP health, project, Run timeline, coverage, artifact, Human, and retention routes: PASS.
 - Dashboard and artifact paths remain read-only; retention produces a plan and does not delete data: PASS.
 
+## Automation exit-gate evidence
+
+- `npm run build`: PASS.
+- `npm run lint`: PASS.
+- `npm run format:check`: PASS after formatting.
+- `npm test`: PASS, 50 tests.
+- Local and CI Runs for the same SHA remain separate and idempotent: PASS.
+- Dirty source is recorded as a `BLOCKED` Run without mixing uncommitted files: PASS.
+- SQLite lease prevents duplicate workers and recovers after expiry: PASS.
+- Infrastructure retry creates a new immutable Attempt Run and wait follows the retry: PASS.
+- Notification retry, redaction, delivery audit, and Gate isolation: PASS.
+- Existing post-commit hook preservation and uninstall restoration: PASS.
+- AtmosphereEngine `.acceptance` automation configuration and PR/master Workflow: IMPLEMENTED; live CI is `NOT RUN` until an independent remote CAP repository and immutable `CAP_REF` are configured.
+
 ## Risks and limits
 
 - Runtime support currently targets Node 24 because CAP uses the built-in `node:sqlite` API.
@@ -123,6 +138,14 @@ Attached document: engineering requirements and a staged implementation plan. It
 - The Dashboard is local loopback HTTP without authentication and is intended for an operator workstation, not direct production exposure.
 - No external target project, device, production service, or external Codex credential is touched by this bootstrap.
 
-## Next phase
+## Remaining boundaries
 
-No further implementation phase is required for this isolated MVP. Real target-project adapters, browser/device capture, live Codex invocation, and production deployment remain operator-scoped acceptance work.
+The automation implementation is complete for the first AtmosphereEngine Node
+Runtime + Memory adapter. Host-level installation was attempted, but this
+Windows session denied creation of the current-user Task Scheduler task even
+with the interactive/limited-privilege settings; CAP rolled the partial
+installation back, so no target Hook or Worker task remains installed. The CAP
+remote, GitHub repository variables, required branch-protection check, and a
+real post-commit/Toast/CI run remain operator-side rollout steps. Browser,
+Android, Windows Host, and Steam adapters still require their own real
+environment evidence.

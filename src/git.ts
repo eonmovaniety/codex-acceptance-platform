@@ -1,7 +1,10 @@
 import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { CapError } from "./errors.js";
 
 export interface GitClient {
+  repoRoot(repoPath: string): string;
+  gitDir(repoPath: string): string;
   resolveCommit(repoPath: string, commit: string): string;
   statusPorcelain(repoPath: string): string;
   diff(repoPath: string, commit: string): string;
@@ -19,22 +22,30 @@ export interface GitClient {
 }
 
 export class CliGitClient implements GitClient {
-  resolveCommit(repoPath: string, commit: string): string {
-    const result = spawnSync(
-      "git",
-      ["-C", repoPath, "rev-parse", "--verify", `${commit}^{commit}`],
-      {
-        encoding: "utf8",
-        windowsHide: true,
-      },
+  repoRoot(repoPath: string): string {
+    return this.runGit(
+      repoPath,
+      ["rev-parse", "--show-toplevel"],
+      "Git root could not be resolved",
     );
-    if (result.status !== 0) {
-      throw new CapError(
-        `Git target commit could not be resolved: ${commit}`,
-        "INVALID_TARGET_COMMIT",
-      );
-    }
-    return result.stdout.trim();
+  }
+
+  gitDir(repoPath: string): string {
+    const value = this.runGit(
+      repoPath,
+      ["rev-parse", "--git-dir"],
+      "Git directory could not be resolved",
+    );
+    return resolve(repoPath, value);
+  }
+
+  resolveCommit(repoPath: string, commit: string): string {
+    return this.runGit(
+      repoPath,
+      ["rev-parse", "--verify", `${commit}^{commit}`],
+      `Git target commit could not be resolved: ${commit}`,
+      "INVALID_TARGET_COMMIT",
+    );
   }
 
   statusPorcelain(repoPath: string): string {
@@ -170,6 +181,21 @@ export class CliGitClient implements GitClient {
     });
     if (result.status !== 0)
       throw new CapError("Git is not available", "GIT_UNAVAILABLE");
+    return result.stdout.trim();
+  }
+
+  private runGit(
+    repoPath: string,
+    args: string[],
+    message: string,
+    code = "GIT_ERROR",
+  ): string {
+    const result = spawnSync("git", ["-C", repoPath, ...args], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    if (result.status !== 0)
+      throw new CapError(`${message}: ${result.stderr.trim()}`, code);
     return result.stdout.trim();
   }
 }

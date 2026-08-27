@@ -42,6 +42,9 @@ reviewer:
 gate:
   policy_version: v1
 
+automation:
+  enabled: false
+
 human_gates:
   - contract_change
   - baseline_update

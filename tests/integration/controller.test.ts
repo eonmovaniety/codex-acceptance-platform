@@ -10,6 +10,14 @@ import { SqliteStore, type Clock } from "../../src/storage.js";
 const fixedClock: Clock = { now: () => "2026-08-27T00:00:00.000Z" };
 
 class FakeGit implements GitClient {
+  repoRoot(): string {
+    return "";
+  }
+
+  gitDir(): string {
+    return "";
+  }
+
   resolveCommit(): string {
     return "0123456789abcdef0123456789abcdef01234567";
   }

@@ -13,8 +13,31 @@ export function createIdempotencyKey(
   taskId: string,
   targetCommit: string,
   contractHash: string,
+  testDataVersion = "v1",
+  gatePolicyVersion = "v1",
+  executionScope = "local",
 ): string {
   return createHash("sha256")
-    .update([projectId, taskId, targetCommit, contractHash].join("\n"), "utf8")
+    .update(
+      [
+        projectId,
+        taskId,
+        targetCommit,
+        contractHash,
+        testDataVersion,
+        gatePolicyVersion,
+        executionScope,
+      ].join("\n"),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+export function createRetryIdempotencyKey(
+  baseKey: string,
+  attempt: number,
+): string {
+  return createHash("sha256")
+    .update([baseKey, "retry", String(attempt)].join("\n"), "utf8")
     .digest("hex");
 }

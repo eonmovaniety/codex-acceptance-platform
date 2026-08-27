@@ -3,7 +3,12 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   AcceptanceRun,
+  AutomationJob,
+  AutomationJobStatus,
   ContractRecord,
+  NotificationDelivery,
+  NotificationOutboxItem,
+  NotificationStatus,
   Project,
   RequirementRecord,
   ResourceLease,
@@ -130,6 +135,79 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_resource_leases_run ON resource_leases(run_id);
     `,
   },
+  {
+    version: "0004_automation",
+    sql: `
+      ALTER TABLE runs ADD COLUMN trigger_source TEXT NOT NULL DEFAULT 'manual';
+      ALTER TABLE runs ADD COLUMN execution_scope TEXT NOT NULL DEFAULT 'local';
+      ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE runs ADD COLUMN retry_of TEXT;
+      CREATE INDEX IF NOT EXISTS idx_runs_scope_commit
+        ON runs(project_id, task_id, target_commit, execution_scope);
+
+      CREATE TABLE IF NOT EXISTS automation_jobs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        task_id TEXT NOT NULL,
+        run_id TEXT REFERENCES runs(id),
+        source TEXT NOT NULL CHECK (source IN ('post_commit', 'ci_pull_request', 'ci_push')),
+        execution_scope TEXT NOT NULL CHECK (execution_scope IN ('local', 'ci')),
+        event_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN (
+          'QUEUED', 'CLAIMED', 'RUNNING', 'RETRY_WAIT', 'SUCCEEDED',
+          'FAILED', 'BLOCKED', 'DEAD_LETTER'
+        )),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1,
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        next_attempt_at TEXT NOT NULL,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        UNIQUE (execution_scope, event_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_automation_jobs_ready
+        ON automation_jobs(status, next_attempt_at, created_at);
+      CREATE INDEX IF NOT EXISTS idx_automation_jobs_project
+        ON automation_jobs(project_id, task_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS notification_outbox (
+        id TEXT PRIMARY KEY,
+        run_id TEXT REFERENCES runs(id),
+        job_id TEXT REFERENCES automation_jobs(id),
+        event_type TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('PENDING', 'SENDING', 'SENT', 'FAILED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT NOT NULL,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        sent_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_notification_outbox_ready
+        ON notification_outbox(status, next_attempt_at, created_at);
+
+      CREATE TABLE IF NOT EXISTS notification_deliveries (
+        id TEXT PRIMARY KEY,
+        outbox_id TEXT NOT NULL REFERENCES notification_outbox(id),
+        channel TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('PENDING', 'SENDING', 'SENT', 'FAILED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT NOT NULL,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        sent_at TEXT,
+        UNIQUE (outbox_id, channel)
+      );
+      CREATE INDEX IF NOT EXISTS idx_notification_deliveries_ready
+        ON notification_deliveries(status, next_attempt_at, created_at);
+    `,
+  },
 ];
 
 type Row = Record<string, unknown>;
@@ -208,6 +286,9 @@ function mapRun(row: Row): AcceptanceRun {
   const reviewerThreadId = nullableText(row.reviewer_thread_id);
   const startedAt = nullableText(row.started_at);
   const completedAt = nullableText(row.completed_at);
+  const retryOf = nullableText(row.retry_of);
+  const triggerSource = nullableText(row.trigger_source);
+  const executionScope = nullableText(row.execution_scope);
   return {
     id: text(row.id),
     projectId: text(row.project_id),
@@ -222,9 +303,92 @@ function mapRun(row: Row): AcceptanceRun {
       ? {}
       : { decision: decision as NonNullable<AcceptanceRun["decision"]> }),
     ...(reviewerThreadId === undefined ? {} : { reviewerThreadId }),
+    ...(triggerSource === undefined
+      ? {}
+      : {
+          triggerSource: triggerSource as NonNullable<
+            AcceptanceRun["triggerSource"]
+          >,
+        }),
+    ...(executionScope === undefined
+      ? {}
+      : {
+          executionScope: executionScope as NonNullable<
+            AcceptanceRun["executionScope"]
+          >,
+        }),
+    ...(row.attempt === undefined ? {} : { attempt: Number(row.attempt) }),
+    ...(retryOf === undefined ? {} : { retryOf }),
     createdAt: text(row.created_at),
     ...(startedAt === undefined ? {} : { startedAt }),
     ...(completedAt === undefined ? {} : { completedAt }),
+  };
+}
+
+function mapAutomationJob(row: Row): AutomationJob {
+  const runId = nullableText(row.run_id);
+  const leaseOwner = nullableText(row.lease_owner);
+  const leaseExpiresAt = nullableText(row.lease_expires_at);
+  const lastError = nullableText(row.last_error);
+  const startedAt = nullableText(row.started_at);
+  const completedAt = nullableText(row.completed_at);
+  return {
+    id: text(row.id),
+    projectId: text(row.project_id),
+    taskId: text(row.task_id),
+    ...(runId === undefined ? {} : { runId }),
+    source: row.source as AutomationJob["source"],
+    executionScope: row.execution_scope as AutomationJob["executionScope"],
+    eventId: text(row.event_id),
+    idempotencyKey: text(row.idempotency_key),
+    status: row.status as AutomationJobStatus,
+    attempts: Number(row.attempts),
+    maxAttempts: Number(row.max_attempts),
+    ...(leaseOwner === undefined ? {} : { leaseOwner }),
+    ...(leaseExpiresAt === undefined ? {} : { leaseExpiresAt }),
+    nextAttemptAt: text(row.next_attempt_at),
+    ...(lastError === undefined ? {} : { lastError }),
+    createdAt: text(row.created_at),
+    updatedAt: text(row.updated_at),
+    ...(startedAt === undefined ? {} : { startedAt }),
+    ...(completedAt === undefined ? {} : { completedAt }),
+  };
+}
+
+function mapNotificationOutbox(row: Row): NotificationOutboxItem {
+  const runId = nullableText(row.run_id);
+  const jobId = nullableText(row.job_id);
+  const lastError = nullableText(row.last_error);
+  const sentAt = nullableText(row.sent_at);
+  return {
+    id: text(row.id),
+    ...(runId === undefined ? {} : { runId }),
+    ...(jobId === undefined ? {} : { jobId }),
+    eventType: text(row.event_type),
+    dedupeKey: text(row.dedupe_key),
+    payload: JSON.parse(text(row.payload_json)) as Record<string, unknown>,
+    status: row.status as NotificationStatus,
+    attempts: Number(row.attempts),
+    nextAttemptAt: text(row.next_attempt_at),
+    ...(lastError === undefined ? {} : { lastError }),
+    createdAt: text(row.created_at),
+    ...(sentAt === undefined ? {} : { sentAt }),
+  };
+}
+
+function mapNotificationDelivery(row: Row): NotificationDelivery {
+  const lastError = nullableText(row.last_error);
+  const sentAt = nullableText(row.sent_at);
+  return {
+    id: text(row.id),
+    outboxId: text(row.outbox_id),
+    channel: text(row.channel),
+    status: row.status as NotificationStatus,
+    attempts: Number(row.attempts),
+    nextAttemptAt: text(row.next_attempt_at),
+    ...(lastError === undefined ? {} : { lastError }),
+    createdAt: text(row.created_at),
+    ...(sentAt === undefined ? {} : { sentAt }),
   };
 }
 
@@ -458,8 +622,9 @@ export class SqliteStore {
     this.db
       .prepare(
         `INSERT INTO runs (id, project_id, task_id, target_commit, contract_version, test_data_version,
-          gate_policy_version, idempotency_key, status, decision, reviewer_thread_id, created_at, started_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          gate_policy_version, idempotency_key, status, decision, reviewer_thread_id,
+          trigger_source, execution_scope, attempt, retry_of, created_at, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         run.id,
@@ -473,6 +638,10 @@ export class SqliteStore {
         run.status,
         run.decision ?? null,
         run.reviewerThreadId ?? null,
+        run.triggerSource ?? "manual",
+        run.executionScope ?? "local",
+        run.attempt ?? 1,
+        run.retryOf ?? null,
         run.createdAt,
         run.startedAt ?? null,
         run.completedAt ?? null,
@@ -511,6 +680,12 @@ export class SqliteStore {
 
   updateRun(run: AcceptanceRun): AcceptanceRun {
     const current = this.getRun(run.id);
+    const currentTriggerSource = current.triggerSource ?? "manual";
+    const nextTriggerSource = run.triggerSource ?? "manual";
+    const currentExecutionScope = current.executionScope ?? "local";
+    const nextExecutionScope = run.executionScope ?? "local";
+    const currentAttempt = current.attempt ?? 1;
+    const nextAttempt = run.attempt ?? 1;
     if (
       current.projectId !== run.projectId ||
       current.taskId !== run.taskId ||
@@ -519,6 +694,10 @@ export class SqliteStore {
       current.testDataVersion !== run.testDataVersion ||
       current.gatePolicyVersion !== run.gatePolicyVersion ||
       current.idempotencyKey !== run.idempotencyKey ||
+      currentTriggerSource !== nextTriggerSource ||
+      currentExecutionScope !== nextExecutionScope ||
+      currentAttempt !== nextAttempt ||
+      current.retryOf !== run.retryOf ||
       current.createdAt !== run.createdAt
     ) {
       throw new ImmutableRunError(
@@ -581,6 +760,337 @@ export class SqliteStore {
       payload: JSON.parse(text(row.payload_json)) as Record<string, unknown>,
       createdAt: text(row.created_at),
     }));
+  }
+
+  createAutomationJob(job: AutomationJob): AutomationJob {
+    this.db
+      .prepare(
+        `INSERT INTO automation_jobs (
+          id, project_id, task_id, run_id, source, execution_scope, event_id,
+          idempotency_key, status, attempts, max_attempts, lease_owner,
+          lease_expires_at, next_attempt_at, last_error, created_at, updated_at,
+          started_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        job.id,
+        job.projectId,
+        job.taskId,
+        job.runId ?? null,
+        job.source,
+        job.executionScope,
+        job.eventId,
+        job.idempotencyKey,
+        job.status,
+        job.attempts,
+        job.maxAttempts,
+        job.leaseOwner ?? null,
+        job.leaseExpiresAt ?? null,
+        job.nextAttemptAt,
+        job.lastError ?? null,
+        job.createdAt,
+        job.updatedAt,
+        job.startedAt ?? null,
+        job.completedAt ?? null,
+      );
+    return job;
+  }
+
+  getAutomationJob(id: string): AutomationJob {
+    const row = this.db
+      .prepare("SELECT * FROM automation_jobs WHERE id = ?")
+      .get(id) as Row | undefined;
+    if (!row) throw new NotFoundError("automation job", id);
+    return mapAutomationJob(row);
+  }
+
+  findAutomationJobByIdempotencyKey(
+    idempotencyKey: string,
+  ): AutomationJob | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM automation_jobs WHERE idempotency_key = ?")
+      .get(idempotencyKey) as Row | undefined;
+    return row ? mapAutomationJob(row) : undefined;
+  }
+
+  findAutomationJobByEvent(
+    executionScope: AutomationJob["executionScope"],
+    eventId: string,
+  ): AutomationJob | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM automation_jobs WHERE execution_scope = ? AND event_id = ?",
+      )
+      .get(executionScope, eventId) as Row | undefined;
+    return row ? mapAutomationJob(row) : undefined;
+  }
+
+  findAutomationJobByRunId(runId: string): AutomationJob | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM automation_jobs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(runId) as Row | undefined;
+    if (row) return mapAutomationJob(row);
+    const lineage = this.db
+      .prepare(
+        `WITH RECURSIVE run_lineage(id) AS (
+           SELECT ?
+           UNION ALL
+           SELECT runs.id FROM runs JOIN run_lineage ON runs.retry_of = run_lineage.id
+         )
+         SELECT automation_jobs.*
+         FROM automation_jobs
+         WHERE automation_jobs.run_id IN (SELECT id FROM run_lineage)
+         ORDER BY automation_jobs.created_at DESC LIMIT 1`,
+      )
+      .get(runId) as Row | undefined;
+    return lineage ? mapAutomationJob(lineage) : undefined;
+  }
+
+  listAutomationJobs(projectId?: string): AutomationJob[] {
+    const rows = projectId
+      ? this.db
+          .prepare(
+            "SELECT * FROM automation_jobs WHERE project_id = ? ORDER BY created_at",
+          )
+          .all(projectId)
+      : this.db
+          .prepare("SELECT * FROM automation_jobs ORDER BY created_at")
+          .all();
+    return (rows as Row[]).map(mapAutomationJob);
+  }
+
+  updateAutomationJob(job: AutomationJob): AutomationJob {
+    const current = this.getAutomationJob(job.id);
+    if (
+      current.projectId !== job.projectId ||
+      current.taskId !== job.taskId ||
+      current.source !== job.source ||
+      current.executionScope !== job.executionScope ||
+      current.eventId !== job.eventId ||
+      current.idempotencyKey !== job.idempotencyKey ||
+      current.createdAt !== job.createdAt
+    ) {
+      throw new Error(
+        `Immutable automation job fields cannot change for ${job.id}`,
+      );
+    }
+    this.db
+      .prepare(
+        `UPDATE automation_jobs SET run_id = ?, status = ?, attempts = ?, max_attempts = ?,
+          lease_owner = ?, lease_expires_at = ?, next_attempt_at = ?, last_error = ?,
+          updated_at = ?, started_at = ?, completed_at = ? WHERE id = ?`,
+      )
+      .run(
+        job.runId ?? null,
+        job.status,
+        job.attempts,
+        job.maxAttempts,
+        job.leaseOwner ?? null,
+        job.leaseExpiresAt ?? null,
+        job.nextAttemptAt,
+        job.lastError ?? null,
+        job.updatedAt,
+        job.startedAt ?? null,
+        job.completedAt ?? null,
+        job.id,
+      );
+    return job;
+  }
+
+  claimNextAutomationJob(
+    owner: string,
+    leaseExpiresAt: string,
+    now: string,
+  ): AutomationJob | undefined {
+    return this.withTransaction(() => {
+      this.db
+        .prepare(
+          `UPDATE automation_jobs SET status = 'QUEUED', lease_owner = NULL,
+            lease_expires_at = NULL, updated_at = ?
+           WHERE status IN ('CLAIMED', 'RUNNING')
+             AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`,
+        )
+        .run(now, now);
+      const row = this.db
+        .prepare(
+          `SELECT * FROM automation_jobs
+           WHERE status IN ('QUEUED', 'RETRY_WAIT') AND next_attempt_at <= ?
+           ORDER BY created_at LIMIT 1`,
+        )
+        .get(now) as Row | undefined;
+      if (!row) return undefined;
+      const job = mapAutomationJob(row);
+      const claimed: AutomationJob = {
+        ...job,
+        status: "CLAIMED",
+        attempts: job.attempts + 1,
+        leaseOwner: owner,
+        leaseExpiresAt,
+        updatedAt: now,
+        startedAt: job.startedAt ?? now,
+      };
+      this.updateAutomationJob(claimed);
+      return claimed;
+    });
+  }
+
+  renewAutomationJobLease(
+    jobId: string,
+    owner: string,
+    leaseExpiresAt: string,
+    now: string,
+  ): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE automation_jobs SET lease_expires_at = ?, updated_at = ?
+         WHERE id = ? AND lease_owner = ? AND status IN ('CLAIMED', 'RUNNING')`,
+      )
+      .run(leaseExpiresAt, now, jobId, owner);
+    return Number(result.changes) === 1;
+  }
+
+  createNotificationOutbox(
+    item: NotificationOutboxItem,
+  ): NotificationOutboxItem {
+    this.db
+      .prepare(
+        `INSERT INTO notification_outbox (
+          id, run_id, job_id, event_type, dedupe_key, payload_json, status,
+          attempts, next_attempt_at, last_error, created_at, sent_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        item.id,
+        item.runId ?? null,
+        item.jobId ?? null,
+        item.eventType,
+        item.dedupeKey,
+        JSON.stringify(item.payload),
+        item.status,
+        item.attempts,
+        item.nextAttemptAt,
+        item.lastError ?? null,
+        item.createdAt,
+        item.sentAt ?? null,
+      );
+    return item;
+  }
+
+  getNotificationOutbox(id: string): NotificationOutboxItem {
+    const row = this.db
+      .prepare("SELECT * FROM notification_outbox WHERE id = ?")
+      .get(id) as Row | undefined;
+    if (!row) throw new NotFoundError("notification outbox item", id);
+    return mapNotificationOutbox(row);
+  }
+
+  findNotificationOutboxByDedupeKey(
+    dedupeKey: string,
+  ): NotificationOutboxItem | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM notification_outbox WHERE dedupe_key = ?")
+      .get(dedupeKey) as Row | undefined;
+    return row ? mapNotificationOutbox(row) : undefined;
+  }
+
+  listNotificationOutbox(
+    statuses: NotificationStatus[] = ["PENDING", "FAILED"],
+  ): NotificationOutboxItem[] {
+    if (statuses.length === 0) return [];
+    const placeholders = statuses.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM notification_outbox WHERE status IN (${placeholders})
+         ORDER BY created_at`,
+      )
+      .all(...statuses);
+    return (rows as Row[]).map(mapNotificationOutbox);
+  }
+
+  updateNotificationOutbox(
+    item: NotificationOutboxItem,
+  ): NotificationOutboxItem {
+    this.db
+      .prepare(
+        `UPDATE notification_outbox SET status = ?, attempts = ?, next_attempt_at = ?,
+          last_error = ?, sent_at = ? WHERE id = ?`,
+      )
+      .run(
+        item.status,
+        item.attempts,
+        item.nextAttemptAt,
+        item.lastError ?? null,
+        item.sentAt ?? null,
+        item.id,
+      );
+    return item;
+  }
+
+  createNotificationDelivery(
+    delivery: NotificationDelivery,
+  ): NotificationDelivery {
+    this.db
+      .prepare(
+        `INSERT INTO notification_deliveries (
+          id, outbox_id, channel, status, attempts, next_attempt_at,
+          last_error, created_at, sent_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        delivery.id,
+        delivery.outboxId,
+        delivery.channel,
+        delivery.status,
+        delivery.attempts,
+        delivery.nextAttemptAt,
+        delivery.lastError ?? null,
+        delivery.createdAt,
+        delivery.sentAt ?? null,
+      );
+    return delivery;
+  }
+
+  findNotificationDelivery(
+    outboxId: string,
+    channel: string,
+  ): NotificationDelivery | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM notification_deliveries WHERE outbox_id = ? AND channel = ?",
+      )
+      .get(outboxId, channel) as Row | undefined;
+    return row ? mapNotificationDelivery(row) : undefined;
+  }
+
+  updateNotificationDelivery(
+    delivery: NotificationDelivery,
+  ): NotificationDelivery {
+    this.db
+      .prepare(
+        `UPDATE notification_deliveries SET status = ?, attempts = ?, next_attempt_at = ?,
+          last_error = ?, sent_at = ? WHERE id = ?`,
+      )
+      .run(
+        delivery.status,
+        delivery.attempts,
+        delivery.nextAttemptAt,
+        delivery.lastError ?? null,
+        delivery.sentAt ?? null,
+        delivery.id,
+      );
+    return delivery;
+  }
+
+  listNotificationDeliveries(outboxId: string): NotificationDelivery[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM notification_deliveries WHERE outbox_id = ? ORDER BY channel",
+        )
+        .all(outboxId) as Row[]
+    ).map(mapNotificationDelivery);
   }
 
   createLease(lease: ResourceLease): ResourceLease {
