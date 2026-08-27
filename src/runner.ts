@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { CapError } from "./errors.js";
 
 export interface CommandResult {
@@ -54,10 +56,19 @@ export class LocalCommandRunner implements CommandRunner {
         "COMMAND_INVALID",
       );
     const args = tokens.slice(1);
+    const invocation = resolveInvocation(executable, args);
     const started = Date.now();
-    const result = spawnSync(executable, args, {
+    const result = spawnSync(invocation.executable, invocation.args, {
       cwd: options.cwd,
-      env: sanitizedEnvironment(options.env),
+      env: sanitizedEnvironment({
+        ...options.env,
+        ...(process.platform === "win32"
+          ? {
+              npm_config_cache: join(options.cwd, ".cap-npm-cache"),
+              npm_config_update_notifier: "false",
+            }
+          : {}),
+      }),
       encoding: "utf8",
       timeout: options.timeoutMs ?? 300_000,
       windowsHide: true,
@@ -72,8 +83,8 @@ export class LocalCommandRunner implements CommandRunner {
         : (processError?.message ?? "");
     return {
       command,
-      executable,
-      args,
+      executable: invocation.executable,
+      args: invocation.args,
       exitCode: timedOut ? null : result.status,
       ...(result.signal === null || result.signal === undefined
         ? {}
@@ -95,6 +106,8 @@ export function sanitizedEnvironment(
     "Path",
     "PATHEXT",
     "SystemRoot",
+    "ComSpec",
+    "COMSPEC",
     "TEMP",
     "TMP",
     "HOME",
@@ -122,4 +135,29 @@ export function sanitizedEnvironment(
     delete environment[secret];
   }
   return environment;
+}
+
+function resolveInvocation(
+  executable: string,
+  args: string[],
+): { executable: string; args: string[] } {
+  if (process.platform !== "win32") return { executable, args };
+  const normalized = executable.toLowerCase();
+  if (
+    normalized !== "npm" &&
+    normalized !== "npm.cmd" &&
+    normalized !== "npx" &&
+    normalized !== "npx.cmd"
+  )
+    return { executable, args };
+  const cliName = normalized.startsWith("npx") ? "npx-cli.js" : "npm-cli.js";
+  const cliPath = join(
+    dirname(process.execPath),
+    "node_modules",
+    "npm",
+    "bin",
+    cliName,
+  );
+  if (!existsSync(cliPath)) return { executable, args };
+  return { executable: process.execPath, args: [cliPath, ...args] };
 }

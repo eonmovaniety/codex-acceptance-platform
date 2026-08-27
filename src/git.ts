@@ -130,14 +130,23 @@ export class CliGitClient implements GitClient {
   }
 
   cleanUntracked(repoPath: string): void {
-    const result = spawnSync(
-      "git",
-      ["-C", repoPath, "clean", "-fd", "--", "."],
-      {
-        encoding: "utf8",
-        windowsHide: true,
-      },
-    );
+    const gitArgs =
+      process.platform === "win32"
+        ? [
+            "-c",
+            "core.longpaths=true",
+            "-C",
+            repoPath,
+            "clean",
+            "-fd",
+            "--",
+            ".",
+          ]
+        : ["-C", repoPath, "clean", "-fd", "--", "."];
+    const result = spawnSync("git", gitArgs, {
+      encoding: "utf8",
+      windowsHide: true,
+    });
     if (result.status !== 0)
       throw new CapError(`Git clean failed for ${repoPath}`, "GIT_ERROR");
   }

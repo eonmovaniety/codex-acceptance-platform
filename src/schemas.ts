@@ -17,6 +17,7 @@ export type SchemaName =
   | "risk-assessment"
   | "gate-policy"
   | "gate-decision"
+  | "atmosphere-engine-report"
   | "visual-case";
 
 const versionOne = { const: 1 };
@@ -732,6 +733,86 @@ export const capSchemas: Record<SchemaName, object> = {
       policy_version: { type: "string" },
       created_at: { type: "string" },
       details: { type: "object" },
+    },
+    additionalProperties: true,
+  },
+  "atmosphere-engine-report": {
+    type: "object",
+    required: [
+      "version",
+      "adapter",
+      "target_commit",
+      "engine",
+      "target",
+      "result",
+      "checks",
+      "runtime",
+      "limitations",
+    ],
+    properties: {
+      version: versionOne,
+      adapter: { const: "atmosphere-engine" },
+      target_commit: { type: "string", minLength: 7 },
+      engine: {
+        type: "object",
+        required: ["name", "version", "contract_version"],
+        properties: {
+          name: { type: "string", minLength: 1 },
+          version: { type: "string", minLength: 1 },
+          contract_version: { type: "string", minLength: 1 },
+        },
+        additionalProperties: true,
+      },
+      target: {
+        type: "object",
+        required: ["target_id", "platform", "product"],
+        properties: {
+          target_id: { type: "string", minLength: 1 },
+          platform: { type: "string", minLength: 1 },
+          product: { type: "string", minLength: 1 },
+        },
+        additionalProperties: true,
+      },
+      result: { enum: ["PASS", "FAIL", "BLOCKED"] },
+      checks: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["id", "result"],
+          properties: {
+            id: { type: "string", minLength: 1 },
+            result: { enum: ["PASS", "FAIL", "BLOCKED", "NOT_TESTED"] },
+            detail: { type: "string" },
+          },
+          additionalProperties: true,
+        },
+      },
+      runtime: {
+        type: "object",
+        required: [
+          "apply_status",
+          "applied_revision",
+          "same_plan_status",
+          "stale_revision_status",
+          "rollback_status",
+          "rollback_event_observed",
+          "preview_isolated",
+          "event_types",
+        ],
+        properties: {
+          apply_status: { enum: ["applied", "degraded"] },
+          applied_revision: { type: "integer", minimum: 1 },
+          same_plan_status: { const: "noop" },
+          stale_revision_status: { const: "superseded" },
+          rollback_status: { const: "rejected" },
+          rollback_event_observed: { type: "boolean" },
+          preview_isolated: { type: "boolean" },
+          event_types: { type: "array", items: { type: "string" } },
+        },
+        additionalProperties: true,
+      },
+      limitations: { type: "array", items: { type: "string" } },
     },
     additionalProperties: true,
   },

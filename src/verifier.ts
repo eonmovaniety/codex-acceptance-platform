@@ -42,9 +42,14 @@ export interface VerifierContext {
   timeoutMs?: number;
 }
 
+export interface AcceptanceAdapter {
+  run(context: VerifierContext): VerifierResult[];
+}
+
 export interface GenericVerifierOptions {
   stages?: VerifierStage[];
   stopOnFailure?: boolean;
+  verifierName?: string;
 }
 
 const defaultStages: VerifierStage[] = [
@@ -56,7 +61,7 @@ const defaultStages: VerifierStage[] = [
   "e2e",
 ];
 
-export class GenericCommandAdapter {
+export class GenericCommandAdapter implements AcceptanceAdapter {
   constructor(private readonly options: GenericVerifierOptions = {}) {}
 
   run(context: VerifierContext): VerifierResult[] {
@@ -173,7 +178,7 @@ export class GenericCommandAdapter {
     return {
       version: 1,
       run_id: context.runId,
-      verifier: "generic-command",
+      verifier: this.options.verifierName ?? "generic-command",
       stage,
       result: value,
       started_at: startedAt,
@@ -197,7 +202,7 @@ export class GenericCommandAdapter {
     return {
       version: 1,
       run_id: context.runId,
-      verifier: "generic-command",
+      verifier: this.options.verifierName ?? "generic-command",
       stage,
       result: "NOT_TESTED",
       started_at: now(context),

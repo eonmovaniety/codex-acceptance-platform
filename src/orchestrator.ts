@@ -43,6 +43,7 @@ import { LocalCommandRunner, type CommandRunner } from "./runner.js";
 import { SqliteStore, systemClock, type Clock } from "./storage.js";
 import { transitionRun, transitionTask } from "./state-machine.js";
 import { GenericCommandAdapter, type VerifierResult } from "./verifier.js";
+import { AtmosphereEngineAdapter } from "./adapters/atmosphere-engine.js";
 import { CliGitClient, type GitClient } from "./git.js";
 import { RuntimeManager, type RuntimeRecord } from "./runtime.js";
 import { TestDataManager } from "./test-data.js";
@@ -202,7 +203,7 @@ export class AcceptanceRunExecutor {
       );
       run = this.updateRunStatus(run, "PREPARING", "RunPreparing");
       run = this.updateRunStatus(run, "VERIFYING", "RunVerifying");
-      const verifier = new GenericCommandAdapter();
+      const verifier = createVerifierAdapter(config);
       verifierResults = verifier.run({
         runId: run.id,
         projectId: project.id,
@@ -653,6 +654,12 @@ export class AcceptanceRunExecutor {
     );
     if (dirty.dirty) this.worktrees.resetToTarget(worktree);
   }
+}
+
+function createVerifierAdapter(config: ProjectConfig) {
+  const type = config.adapter?.type ?? "generic";
+  if (type === "atmosphere-engine") return new AtmosphereEngineAdapter();
+  return new GenericCommandAdapter();
 }
 
 function gatePolicy(

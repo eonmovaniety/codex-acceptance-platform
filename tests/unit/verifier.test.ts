@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { ArtifactStore } from "../../src/artifacts.js";
+import { AtmosphereEngineAdapter } from "../../src/adapters/atmosphere-engine.js";
 import type { ProjectConfig } from "../../src/domain.js";
 import { resolveAcceptanceHome } from "../../src/paths.js";
 import { LocalCommandRunner } from "../../src/runner.js";
@@ -101,5 +102,91 @@ test("generic verifier stops after a failed command and marks later stages not t
     ["FAIL", "NOT_TESTED"],
   );
   assert.equal(aggregateVerifierResults(results), "FAIL");
+  await rm(root, { recursive: true, force: true });
+});
+
+test("Atmosphere Engine adapter validates the structured runtime bridge report", async () => {
+  const root = await mkdtemp(join(process.cwd(), ".test-atmosphere-adapter-"));
+  const artifacts = new ArtifactStore(
+    resolveAcceptanceHome(join(root, "cap-home")),
+  );
+  const bridgeCommand = "node .acceptance/probe.mjs --json";
+  const targetCommit = "0123456789abcdef0123456789abcdef01234567";
+  const context: VerifierContext = {
+    runId: "RUN-ATM",
+    projectId: "project",
+    taskId: "TASK-ATM",
+    targetCommit,
+    worktreePath: root,
+    config: {
+      version: 1,
+      project_id: "project",
+      display_name: "Atmosphere Engine",
+      repository: { base_branch: "master" },
+      adapter: {
+        type: "atmosphere-engine",
+        config: { bridge_command: bridgeCommand },
+      },
+      commands: {
+        build: ["node build.mjs"],
+        unit: ["node unit.mjs"],
+        integration: [bridgeCommand],
+      },
+    },
+    artifacts,
+    runner: {
+      run: (command) => ({
+        command,
+        executable: "node",
+        args: [],
+        exitCode: 0,
+        stdout:
+          command === bridgeCommand
+            ? JSON.stringify({
+                version: 1,
+                adapter: "atmosphere-engine",
+                target_commit: targetCommit,
+                engine: {
+                  name: "@qiyu/atmosphere-engine",
+                  version: "3.0.0",
+                  contract_version: "1.0.0",
+                },
+                target: {
+                  target_id: "cap-root",
+                  platform: "web",
+                  product: "finance",
+                },
+                result: "PASS",
+                checks: [{ id: "runtime", result: "PASS" }],
+                runtime: {
+                  apply_status: "applied",
+                  applied_revision: 1,
+                  same_plan_status: "noop",
+                  stale_revision_status: "superseded",
+                  rollback_status: "rejected",
+                  rollback_event_observed: true,
+                  preview_isolated: true,
+                  event_types: ["AtmosphereApplied"],
+                },
+                limitations: [],
+              })
+            : "",
+        stderr: "",
+        durationMs: 1,
+        timedOut: false,
+      }),
+    },
+    assertTarget: () => undefined,
+  };
+  const results = new AtmosphereEngineAdapter().run(context);
+  const bridge = results.find((result) => result.command === bridgeCommand);
+  assert.equal(bridge?.result, "PASS");
+  assert.ok(
+    bridge?.evidence.some((evidence) => evidence.path === "engine/report.json"),
+  );
+  assert.match(
+    artifacts.readText("project", "TASK-ATM", "RUN-ATM", "engine/report.json"),
+    /@qiyu\/atmosphere-engine/,
+  );
   await rm(root, { recursive: true, force: true });
 });
