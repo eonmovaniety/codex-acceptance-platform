@@ -59,6 +59,40 @@ function Get-PlainText([Security.SecureString]$Secure) {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
 }
 
+function Save-ForgejoToken([string]$Token, [string]$Path) {
+  $directory = Split-Path -Parent $Path
+  New-Item -ItemType Directory -Force -Path $directory | Out-Null
+  [IO.File]::WriteAllText($Path, "$Token`n", [Text.UTF8Encoding]::new($false))
+  $acl = & icacls.exe $Path /inheritance:r /grant:r "${env:USERNAME}:(R,W)" 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    throw "Could not restrict Forgejo token ACL: $($acl -join ' ')"
+  }
+}
+
+function Install-CapWorker {
+  $installation = Join-Path $CapRoot '.git\cap-automation\installation.json'
+  $hook = Join-Path $CapRoot '.git\hooks\post-commit'
+  if ((Test-Path -LiteralPath $installation) -and
+      (Test-Path -LiteralPath $hook) -and
+      ((Get-Content -Raw -LiteralPath $hook) -like '*CAP_AUTOMATION_HOOK_BEGIN*')) {
+    Write-Step 'CAP login Worker is already registered'
+    return
+  }
+  $command = "& '$NodeExe' '$CliPath' automation install --project codex-acceptance-platform --task cap-self-test --home '$CapHome'"
+  $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    $command
+  ) -WindowStyle Hidden -Wait -PassThru
+  if ($process.ExitCode -ne 0) {
+    throw "Elevated CAP Worker registration failed with exit code $($process.ExitCode)"
+  }
+}
+
 function Wait-Forgejo {
   for ($attempt = 1; $attempt -le 60; $attempt++) {
     try {
@@ -132,7 +166,7 @@ function Ensure-BranchProtection(
     dismiss_stale_approvals = $true
     block_on_rejected_reviews = $true
     block_on_official_review_requests = $true
-    block_admin_merge_override = $true
+    apply_to_admins = $true
   }
   try {
     Invoke-ForgejoApi $Token POST "/repos/$ForgejoAdmin/$Repository/branch_protections" $body | Out-Null
@@ -309,6 +343,7 @@ rm -f /tmp/cap-forgejo-compose.yaml /tmp/cap-forgejo-manifest.json /tmp/cap-forg
   } else {
     $tokenLines = @(Invoke-Nas "sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user generate-access-token --username $ForgejoAdmin --token-name cap-poller --scopes write:repository,write:issue,write:user --raw")
     $token = ([string]$tokenLines[0]).Trim()
+    if ($token.Length -ge 20) { Save-ForgejoToken $token $tokenPath }
   }
   if ($token.Length -lt 20) { throw 'Forgejo API token generation failed' }
 
@@ -340,7 +375,7 @@ rm -f /tmp/cap-forgejo-compose.yaml /tmp/cap-forgejo-manifest.json /tmp/cap-forg
     if (Test-Path -LiteralPath $tempToken) { Remove-Item -LiteralPath $tempToken -Force }
     $token = $null
   }
-  Invoke-Cap @('automation', 'install', '--project', 'codex-acceptance-platform', '--task', 'cap-self-test') | Out-Host
+  Install-CapWorker
   Install-BackupSchedule
   Verify-Forgejo
 }
