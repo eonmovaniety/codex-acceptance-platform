@@ -143,8 +143,15 @@ function Ensure-BranchProtection(
 }
 
 function Ensure-ForgejoHostKey {
-  $keyscan = & ssh-keyscan.exe -p 2222 $NasAddress 2>$null
-  if ($LASTEXITCODE -ne 0 -or -not $keyscan) { throw 'Could not read Forgejo SSH host key' }
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $keyscan = & ssh-keyscan.exe -p 2222 $NasAddress 2>$null
+    $keyscanExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+  if ($keyscanExitCode -ne 0 -or -not $keyscan) { throw 'Could not read Forgejo SSH host key' }
   $existing = if (Test-Path -LiteralPath $KnownHosts) { Get-Content -LiteralPath $KnownHosts } else { @() }
   if (-not ($existing | Where-Object { $_ -like "[$NasAddress]:2222 *" })) {
     $backup = "$KnownHosts.cap-forgejo-$(Get-Date -Format yyyyMMddHHmmss).bak"
@@ -284,13 +291,16 @@ rm -f /tmp/cap-forgejo-compose.yaml /tmp/cap-forgejo-manifest.json /tmp/cap-forg
   Invoke-Nas $installRemote | Out-Null
   Wait-Forgejo
 
-  $password = Read-Host "Forgejo administrator password for $ForgejoAdmin" -AsSecureString
-  $plain = Get-PlainText $password
-  try {
-    $createCommand = 'if sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user list | grep -Eq "^[[:space:]]*[0-9]+[[:space:]]+Silmaril[[:space:]]"; then echo existing; else read -r pw; sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user create --username Silmaril --password "$pw" --email silmaril@forgejo.local --admin --must-change-password=false; fi'
-    $result = $plain | & $SshExe -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -i $SshKey $NasHost $createCommand 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Could not create Forgejo administrator: $($result -join ' ')" }
-  } finally { $plain = $null }
+  $adminState = [string](Invoke-Nas 'if sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user list | grep -Eq "^[[:space:]]*[0-9]+[[:space:]]+Silmaril[[:space:]]"; then printf existing; else printf missing; fi')[0]
+  if ($adminState.Trim() -eq 'missing') {
+    $password = Read-Host "Forgejo administrator password for $ForgejoAdmin" -AsSecureString
+    $plain = Get-PlainText $password
+    try {
+      $createCommand = 'read -r pw; sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user create --username Silmaril --password "$pw" --email silmaril@forgejo.local --admin --must-change-password=false'
+      $result = $plain | & $SshExe -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -i $SshKey $NasHost $createCommand 2>&1
+      if ($LASTEXITCODE -ne 0) { throw "Could not create Forgejo administrator: $($result -join ' ')" }
+    } finally { $plain = $null }
+  }
 
   $credentialRef = 'cap-secret://forgejo/Silmaril'
   $tokenPath = Join-Path $CapHome 'secrets\forgejo\Silmaril.token'
