@@ -12,7 +12,7 @@ const taskTransitions: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
     "BLOCKED",
     "CANCELLED",
   ],
-  ACCEPTED: [],
+  ACCEPTED: ["READY_FOR_REVIEW"],
   FIX_REQUESTED: ["FIXING"],
   FIXING: ["READY_FOR_REVIEW", "CANCELLED"],
   NEEDS_HUMAN: ["ACCEPTED", "FIX_REQUESTED", "BLOCKED"],

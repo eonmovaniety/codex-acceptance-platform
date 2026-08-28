@@ -25,6 +25,11 @@ test("task state machine rejects skipping the controller", () => {
   );
 });
 
+test("an accepted task can begin acceptance for a newer immutable commit", () => {
+  const status = transitionTask("ACCEPTED", "READY_FOR_REVIEW");
+  assert.equal(status, "READY_FOR_REVIEW");
+});
+
 test("run state machine accepts completion only from gating", () => {
   assert.equal(canTransitionRun("GATING", "COMPLETED_PASS"), true);
   assert.equal(canTransitionRun("CREATED", "COMPLETED_PASS"), false);
