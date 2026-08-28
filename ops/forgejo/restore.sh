@@ -9,7 +9,7 @@ ROOT=/volume3/docker/forgejo
 BACKUP="$1"
 DOCKER=/usr/local/bin/docker
 case "$BACKUP" in
-  "$ROOT"/backups/forgejo-*.tar.gz) ;;
+  "$ROOT"/backups/forgejo-daily-*.tar.gz|"$ROOT"/backups/forgejo-weekly-*.tar.gz) ;;
   *) echo "backup is outside the managed Forgejo backup directory" >&2; exit 2 ;;
 esac
 [ -f "$BACKUP" ] || { echo "backup not found" >&2; exit 2; }
