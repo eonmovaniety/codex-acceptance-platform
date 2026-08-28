@@ -55,6 +55,22 @@ test("accepted Forgejo refs are fetched before non-deleting backup mirror", asyn
       }).trim(),
       acceptedCommit,
     );
+    assert.deepEqual(
+      execFileSync(
+        "git",
+        [
+          "--git-dir",
+          backup,
+          "for-each-ref",
+          "--format=%(refname)",
+          "refs/heads",
+        ],
+        { encoding: "utf8" },
+      )
+        .trim()
+        .split(/\r?\n/),
+      ["refs/heads/master"],
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

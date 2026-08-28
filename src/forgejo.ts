@@ -532,7 +532,8 @@ export function mirrorAcceptedRefs(
   remote: string,
   acceptedCommit: string,
 ): void {
-  const commands = [
+  const fetchResult = spawnSync(
+    "git",
     [
       "-C",
       project.repoPath,
@@ -541,13 +542,41 @@ export function mirrorAcceptedRefs(
       "+refs/heads/*:refs/remotes/origin/*",
       "+refs/tags/*:refs/tags/*",
     ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  if (fetchResult.status !== 0)
+    throw new CapError(
+      `GitHub backup mirror '${remote}' failed: ${fetchResult.stderr.trim()}`,
+      "FORGEJO_MIRROR_FAILED",
+    );
+  const refs = spawnSync(
+    "git",
     [
       "-C",
       project.repoPath,
-      "push",
-      remote,
-      "refs/remotes/origin/*:refs/heads/*",
+      "for-each-ref",
+      "--format=%(refname)",
+      "refs/remotes/origin",
     ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  if (refs.status !== 0)
+    throw new CapError(
+      `Could not enumerate authoritative refs: ${refs.stderr.trim()}`,
+      "FORGEJO_MIRROR_FAILED",
+    );
+  const branchRefspecs = refs.stdout
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter((value) => value && value !== "refs/remotes/origin/HEAD")
+    .map(
+      (value) =>
+        `${value}:refs/heads/${value.slice("refs/remotes/origin/".length)}`,
+    );
+  const commands = [
+    ...(branchRefspecs.length === 0
+      ? []
+      : [["-C", project.repoPath, "push", remote, ...branchRefspecs]]),
     ["-C", project.repoPath, "push", remote, "--tags"],
   ];
   for (const args of commands) {
