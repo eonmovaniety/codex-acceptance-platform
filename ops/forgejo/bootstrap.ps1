@@ -287,7 +287,7 @@ rm -f /tmp/cap-forgejo-compose.yaml /tmp/cap-forgejo-manifest.json /tmp/cap-forg
   $password = Read-Host "Forgejo administrator password for $ForgejoAdmin" -AsSecureString
   $plain = Get-PlainText $password
   try {
-    $createCommand = 'if sudo -n /usr/local/bin/docker exec forgejo forgejo admin user list | grep -Eq "^[[:space:]]*[0-9]+[[:space:]]+Silmaril[[:space:]]"; then echo existing; else read -r pw; sudo -n /usr/local/bin/docker exec forgejo forgejo admin user create --username Silmaril --password "$pw" --email silmaril@forgejo.local --admin --must-change-password=false; fi'
+    $createCommand = 'if sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user list | grep -Eq "^[[:space:]]*[0-9]+[[:space:]]+Silmaril[[:space:]]"; then echo existing; else read -r pw; sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user create --username Silmaril --password "$pw" --email silmaril@forgejo.local --admin --must-change-password=false; fi'
     $result = $plain | & $SshExe -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -i $SshKey $NasHost $createCommand 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Could not create Forgejo administrator: $($result -join ' ')" }
   } finally { $plain = $null }
@@ -297,7 +297,7 @@ rm -f /tmp/cap-forgejo-compose.yaml /tmp/cap-forgejo-manifest.json /tmp/cap-forg
   if (Test-Path -LiteralPath $tokenPath) {
     $token = (Get-Content -Raw -LiteralPath $tokenPath).Trim()
   } else {
-    $tokenLines = @(Invoke-Nas "sudo -n /usr/local/bin/docker exec forgejo forgejo admin user generate-access-token --username $ForgejoAdmin --token-name cap-poller --scopes write:repository,write:issue,write:user --raw")
+    $tokenLines = @(Invoke-Nas "sudo -n /usr/local/bin/docker exec forgejo forgejo --config /var/lib/gitea/custom/conf/app.ini admin user generate-access-token --username $ForgejoAdmin --token-name cap-poller --scopes write:repository,write:issue,write:user --raw")
     $token = ([string]$tokenLines[0]).Trim()
   }
   if ($token.Length -lt 20) { throw 'Forgejo API token generation failed' }
