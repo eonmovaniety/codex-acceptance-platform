@@ -38,7 +38,7 @@ function Invoke-Nas([string]$Command, [switch]$AllowFailure) {
 }
 
 function Copy-ToNas([string]$LocalPath, [string]$RemotePath) {
-  & $ScpExe -o BatchMode=yes -o ConnectTimeout=15 -o IdentityAgent=none -o IdentitiesOnly=yes -i $SshKey $LocalPath "${NasHost}:$RemotePath"
+  & $ScpExe -O -o BatchMode=yes -o ConnectTimeout=15 -o IdentityAgent=none -o IdentitiesOnly=yes -i $SshKey $LocalPath "${NasHost}:$RemotePath"
   if ($LASTEXITCODE -ne 0) { throw "Could not copy $LocalPath to NAS" }
 }
 
