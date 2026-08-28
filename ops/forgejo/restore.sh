@@ -18,7 +18,7 @@ STAGE="$ROOT/restore-$STAMP"
 ROLLBACK="$ROOT/data.pre-restore-$STAMP"
 mkdir -p "$STAGE"
 tar -xzf "$BACKUP" -C "$STAGE"
-[ -f "$STAGE/data/forgejo.db" ] || { echo "backup does not contain Forgejo database" >&2; exit 3; }
+[ -f "$STAGE/data/data/forgejo.db" ] || { echo "backup does not contain Forgejo database" >&2; exit 3; }
 cd "$ROOT"
 sudo -n "$DOCKER" compose stop forgejo
 mv data "$ROLLBACK"
