@@ -29,8 +29,14 @@ function Write-Step([string]$Message) {
 }
 
 function Invoke-Nas([string]$Command, [switch]$AllowFailure) {
-  $output = & $SshExe -o BatchMode=yes -o ConnectTimeout=15 -o IdentityAgent=none -o IdentitiesOnly=yes -i $SshKey $NasHost $Command 2>&1
-  $code = $LASTEXITCODE
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $output = & $SshExe -o BatchMode=yes -o ConnectTimeout=15 -o IdentityAgent=none -o IdentitiesOnly=yes -i $SshKey $NasHost $Command 2>&1
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
   if ($code -ne 0 -and -not $AllowFailure) {
     throw "NAS command failed ($code): $($output -join [Environment]::NewLine)"
   }
