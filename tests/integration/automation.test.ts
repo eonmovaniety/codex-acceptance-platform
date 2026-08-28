@@ -327,6 +327,59 @@ test("local and CI automation runs are isolated and idempotent", async () => {
   }
 });
 
+test("a newer commit starts a fresh run after the previous commit was accepted", async () => {
+  const fixture = await createFixture("automation-after-accepted");
+  try {
+    const first = await new AutomationService({
+      store: fixture.store,
+      home: fixture.home,
+      git: fixture.git,
+      clock: fixedClock,
+      notifications: silentDispatcher(fixture),
+    }).enqueue({
+      projectId: fixture.project.id,
+      taskId: "TASK-001",
+      commit: "HEAD",
+      source: "ci_push",
+      eventId: "accepted-commit-1",
+    });
+    fixture.store.updateTask({
+      ...fixture.store.getTask(fixture.project.id, "TASK-001"),
+      status: "ACCEPTED",
+      acceptedCommit: first.run!.targetCommit,
+      updatedAt: fixedClock.now(),
+    });
+
+    const nextCommit = "abcdef0123456789abcdef0123456789abcdef01";
+    const second = await new AutomationService({
+      store: fixture.store,
+      home: fixture.home,
+      git: new FakeGit(fixture.root, nextCommit),
+      clock: fixedClock,
+      notifications: silentDispatcher(fixture),
+    }).enqueue({
+      projectId: fixture.project.id,
+      taskId: "TASK-001",
+      commit: "HEAD",
+      source: "ci_pull_request",
+      eventId: "accepted-commit-2",
+    });
+
+    assert.equal(second.job.status, "QUEUED");
+    assert.equal(second.run?.targetCommit, nextCommit);
+    assert.equal(
+      fixture.store.getTask(fixture.project.id, "TASK-001").status,
+      "IN_ACCEPTANCE",
+    );
+    assert.equal(
+      fixture.store.getTask(fixture.project.id, "TASK-001").acceptedCommit,
+      first.run!.targetCommit,
+    );
+  } finally {
+    await closeFixture(fixture);
+  }
+});
+
 test("dirty submissions become BLOCKED without mixing uncommitted files", async () => {
   const fixture = await createFixture("automation-dirty");
   try {

@@ -164,10 +164,14 @@ export class AcceptanceController {
           contractPath,
           contractHash,
         );
+      if (task.status === "FIX_REQUESTED") {
+        task.status = transitionTask(task.status, "FIXING");
+      }
       if (
         task.status === "BUILDING" ||
         task.status === "FIXING" ||
-        task.status === "BLOCKED"
+        task.status === "BLOCKED" ||
+        task.status === "ACCEPTED"
       ) {
         task.status = transitionTask(task.status, "READY_FOR_REVIEW");
       }
