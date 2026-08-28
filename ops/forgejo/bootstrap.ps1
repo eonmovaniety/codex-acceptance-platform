@@ -212,7 +212,7 @@ test -x "$DOCKER"
 test "$(sudo -n "$DOCKER" info --format '{{.DockerRootDir}}')" = '/volume1/@docker'
 test "$(stat -f -c %T /volume3)" = 'btrfs'
 for port in 3000 2222; do
-  if sudo -n ss -lnt | grep -Eq ":$port[[:space:]]"; then
+  if /usr/bin/netstat -lnt | grep -Eq ":$port[[:space:]]"; then
     if ! sudo -n "$DOCKER" ps --format '{{.Names}}' | grep -qx forgejo; then
       echo "port $port is already in use" >&2; exit 20
     fi
