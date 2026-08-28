@@ -246,7 +246,7 @@ export interface ForgejoCoordinatorDependencies {
   git: GitClient;
   request?: ForgejoFetch;
   fetchCommit?: (project: Project, sha: string) => void;
-  mirror?: (project: Project, remote: string) => void;
+  mirror?: (project: Project, remote: string, acceptedCommit: string) => void;
 }
 
 export class ForgejoAutomationCoordinator {
@@ -437,7 +437,11 @@ export class ForgejoAutomationCoordinator {
     if (this.dependencies.store.getForgejoDelivery(key)?.status === "SENT")
       return;
     try {
-      (this.dependencies.mirror ?? mirrorAcceptedRefs)(project, remote);
+      (this.dependencies.mirror ?? mirrorAcceptedRefs)(
+        project,
+        remote,
+        run.targetCommit,
+      );
       this.recordDelivery(key, project.id, run.id, "mirror", "SENT");
     } catch (error) {
       this.recordDelivery(
@@ -523,11 +527,30 @@ function fetchCommit(project: Project, sha: string): void {
     );
 }
 
-function mirrorAcceptedRefs(project: Project, remote: string): void {
-  for (const args of [
-    ["-C", project.repoPath, "push", remote, "--all"],
+export function mirrorAcceptedRefs(
+  project: Project,
+  remote: string,
+  acceptedCommit: string,
+): void {
+  const commands = [
+    [
+      "-C",
+      project.repoPath,
+      "fetch",
+      "origin",
+      "+refs/heads/*:refs/remotes/origin/*",
+      "+refs/tags/*:refs/tags/*",
+    ],
+    [
+      "-C",
+      project.repoPath,
+      "push",
+      remote,
+      "refs/remotes/origin/*:refs/heads/*",
+    ],
     ["-C", project.repoPath, "push", remote, "--tags"],
-  ]) {
+  ];
+  for (const args of commands) {
     const result = spawnSync("git", args, {
       encoding: "utf8",
       windowsHide: true,
@@ -538,6 +561,28 @@ function mirrorAcceptedRefs(project: Project, remote: string): void {
         "FORGEJO_MIRROR_FAILED",
       );
   }
+  const authority = spawnSync(
+    "git",
+    ["-C", project.repoPath, "rev-parse", `refs/remotes/origin/${project.baseBranch}`],
+    { encoding: "utf8", windowsHide: true },
+  );
+  const backup = spawnSync(
+    "git",
+    ["-C", project.repoPath, "ls-remote", remote, `refs/heads/${project.baseBranch}`],
+    { encoding: "utf8", windowsHide: true },
+  );
+  const authoritySha = authority.stdout.trim();
+  const backupSha = backup.stdout.trim().split(/\s+/)[0] ?? "";
+  if (
+    authority.status !== 0 ||
+    backup.status !== 0 ||
+    authoritySha !== acceptedCommit ||
+    backupSha !== acceptedCommit
+  )
+    throw new CapError(
+      `GitHub backup mirror '${remote}' did not verify accepted commit ${acceptedCommit}`,
+      "FORGEJO_MIRROR_VERIFY_FAILED",
+    );
 }
 
 function snakeCase(value: string): string {
