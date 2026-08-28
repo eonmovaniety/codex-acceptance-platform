@@ -28,6 +28,29 @@ test("project schema rejects missing repository branch", () => {
   );
 });
 
+test("project schema accepts Forgejo polling configuration", () => {
+  const project = validateDocument<ProjectConfig>("project", {
+    version: 1,
+    project_id: "forgejo-project",
+    display_name: "Forgejo project",
+    repository: { base_branch: "master" },
+    automation: {
+      enabled: true,
+      tasks: [{ task_id: "TASK-001", contract: ".acceptance/contract.yaml" }],
+      ci: {
+        provider: "forgejo-poll",
+        server_url: "http://192.168.31.9:3000",
+        owner: "Silmaril",
+        repo: "atmosphere-engine",
+        credential_ref: "cap-secret://forgejo/Silmaril",
+        status_context: "cap/atmosphere-acceptance",
+        poll_seconds: 5,
+      },
+    },
+  });
+  assert.equal(project.automation?.ci?.provider, "forgejo-poll");
+});
+
 test("contract schema requires evidence and verification modes", () => {
   assert.throws(
     () =>

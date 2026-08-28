@@ -12,6 +12,7 @@ export interface AcceptanceHomePaths {
   trash: string;
   baselinesCache: string;
   logs: string;
+  secrets: string;
 }
 
 export function resolveAcceptanceHome(explicit?: string): AcceptanceHomePaths {
@@ -30,6 +31,7 @@ export function resolveAcceptanceHome(explicit?: string): AcceptanceHomePaths {
     trash: join(root, "trash"),
     baselinesCache: join(root, "baselines-cache"),
     logs: join(root, "logs"),
+    secrets: join(root, "secrets"),
   };
 }
 
@@ -45,6 +47,7 @@ export async function ensureAcceptanceHome(
     mkdir(paths.trash, { recursive: true }),
     mkdir(paths.baselinesCache, { recursive: true }),
     mkdir(paths.logs, { recursive: true }),
+    mkdir(paths.secrets, { recursive: true }),
   ]);
 }
 

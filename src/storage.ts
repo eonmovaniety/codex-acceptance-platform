@@ -208,6 +208,29 @@ const migrations: Migration[] = [
         ON notification_deliveries(status, next_attempt_at, created_at);
     `,
   },
+  {
+    version: "0005_forgejo",
+    sql: `
+      CREATE TABLE IF NOT EXISTS forgejo_sync_state (
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        state_key TEXT NOT NULL,
+        state_value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, state_key)
+      );
+      CREATE TABLE IF NOT EXISTS forgejo_deliveries (
+        delivery_key TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        run_id TEXT,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('SENT', 'FAILED')),
+        detail TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_forgejo_deliveries_project
+        ON forgejo_deliveries(project_id, updated_at);
+    `,
+  },
 ];
 
 type Row = Record<string, unknown>;
@@ -494,6 +517,82 @@ export class SqliteStore {
     return (
       this.db.prepare("SELECT * FROM projects ORDER BY id").all() as Row[]
     ).map(mapProject);
+  }
+
+  getForgejoState(projectId: string, key: string): string | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT state_value FROM forgejo_sync_state WHERE project_id = ? AND state_key = ?",
+      )
+      .get(projectId, key) as Row | undefined;
+    return row ? text(row.state_value) : undefined;
+  }
+
+  setForgejoState(projectId: string, key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO forgejo_sync_state (project_id, state_key, state_value, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(project_id, state_key) DO UPDATE SET
+           state_value = excluded.state_value, updated_at = excluded.updated_at`,
+      )
+      .run(projectId, key, value, this.clock.now());
+  }
+
+  getForgejoDelivery(
+    key: string,
+  ): { status: "SENT" | "FAILED"; detail?: string } | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT status, detail FROM forgejo_deliveries WHERE delivery_key = ?",
+      )
+      .get(key) as Row | undefined;
+    if (!row) return undefined;
+    const detail = nullableText(row.detail);
+    return {
+      status: row.status as "SENT" | "FAILED",
+      ...(detail === undefined ? {} : { detail }),
+    };
+  }
+
+  setForgejoDelivery(input: {
+    key: string;
+    projectId: string;
+    runId?: string;
+    kind: string;
+    status: "SENT" | "FAILED";
+    detail?: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO forgejo_deliveries
+          (delivery_key, project_id, run_id, kind, status, detail, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(delivery_key) DO UPDATE SET status = excluded.status,
+           detail = excluded.detail, updated_at = excluded.updated_at`,
+      )
+      .run(
+        input.key,
+        input.projectId,
+        input.runId ?? null,
+        input.kind,
+        input.status,
+        input.detail ?? null,
+        this.clock.now(),
+      );
+  }
+
+  listForgejoDeliveries(projectId?: string): Array<Record<string, unknown>> {
+    const rows = projectId
+      ? this.db
+          .prepare(
+            "SELECT * FROM forgejo_deliveries WHERE project_id = ? ORDER BY updated_at",
+          )
+          .all(projectId)
+      : this.db
+          .prepare("SELECT * FROM forgejo_deliveries ORDER BY updated_at")
+          .all();
+    return rows as Row[];
   }
 
   createTask(task: Task): Task {

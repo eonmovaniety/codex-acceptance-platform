@@ -36,6 +36,13 @@ import {
   uninstallAutomation,
   type AutomationSource,
 } from "./automation.js";
+import {
+  ForgejoAutomationCoordinator,
+  forgejoInstallSummary,
+  forgejoProviderConfig,
+  installForgejoSecret,
+  uninstallForgejoSecret,
+} from "./forgejo.js";
 
 export const helpText = `Codex Acceptance Platform (CAP)
 
@@ -54,6 +61,7 @@ Commands:
   automation install|uninstall Install or remove post-commit automation
   automation enqueue|worker   Enqueue or execute automated acceptance
   automation status            Show automation jobs and delivery state
+  automation forgejo ...       Install, verify, inspect, or remove Forgejo polling
   fix start <project> <task>  Start a Builder fix cycle from FIX_REQUESTED
   dashboard serve              Serve the read-only local Dashboard API
   findings list <run>          List structured findings
@@ -460,6 +468,74 @@ async function handleAutomation(
   const store = new SqliteStore(databasePath(home));
   const git = new CliGitClient();
   try {
+    if (subcommand === "forgejo") {
+      const action = positionals[1];
+      const projectId = projectOption(positionals.slice(1), values);
+      const project = new AcceptanceController({
+        store,
+        git,
+      }).getProjectOrThrow(projectId);
+      const config = await loadProjectConfig(project.configPath);
+      const provider = forgejoProviderConfig(config);
+      if (!provider)
+        throw new CapError(
+          "Project automation.ci.provider must be forgejo-poll",
+          "FORGEJO_NOT_CONFIGURED",
+        );
+      const coordinator = new ForgejoAutomationCoordinator({
+        store,
+        home,
+        git,
+      });
+      if (action === "install") {
+        const tokenFile = asString(values["token-file"]);
+        if (!tokenFile)
+          throw new CapError("--token-file is required", "ARGUMENT_ERROR");
+        installForgejoSecret(home, provider.credentialRef, tokenFile);
+        print(
+          {
+            installed: true,
+            ...forgejoInstallSummary(home, provider),
+            verification: await coordinator.verify(project),
+          },
+          values.json === true,
+        );
+        return;
+      }
+      if (action === "verify") {
+        print(await coordinator.verify(project), values.json === true);
+        return;
+      }
+      if (action === "status") {
+        print(
+          {
+            ...forgejoInstallSummary(home, provider),
+            last_poll_at: store.getForgejoState(project.id, "last_poll_at"),
+            last_poll_error: store.getForgejoState(
+              project.id,
+              "last_poll_error",
+            ),
+            deliveries: store.listForgejoDeliveries(project.id),
+          },
+          values.json === true,
+        );
+        return;
+      }
+      if (action === "uninstall") {
+        print(
+          {
+            removed: uninstallForgejoSecret(home, provider.credentialRef),
+            automation_config_preserved: true,
+          },
+          values.json === true,
+        );
+        return;
+      }
+      throw new CapError(
+        "Usage: acceptance automation forgejo install|verify|status|uninstall --project <id>",
+        "ARGUMENT_ERROR",
+      );
+    }
     if (subcommand === "install") {
       const projectId = projectOption(positionals, values);
       const project = new AcceptanceController({
@@ -527,7 +603,21 @@ async function handleAutomation(
       return;
     }
     if (subcommand === "worker") {
-      const worker = new AutomationWorker({ store, home, git });
+      const forgejo = new ForgejoAutomationCoordinator({ store, home, git });
+      const worker = new AutomationWorker({
+        store,
+        home,
+        git,
+        cycle: async () => {
+          try {
+            await forgejo.cycle();
+          } catch (error) {
+            console.error(
+              `CAP Forgejo poll failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        },
+      });
       if (values.once === true) {
         print(await worker.runOnce(), values.json === true);
         return;

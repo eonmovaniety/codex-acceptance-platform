@@ -70,6 +70,7 @@ export interface AutomationDependencies {
   clock?: Clock;
   notifications?: NotificationDispatcher;
   executor?: (runId: string) => Promise<RunExecutionResult>;
+  cycle?: () => Promise<void>;
 }
 
 export function executionScopeFor(source: AutomationSource): ExecutionScope {
@@ -270,7 +271,11 @@ export class AutomationService {
     const dirty = this.dependencies.git
       .statusPorcelain(project.repoPath)
       .trim();
-    if (config.repository.require_clean_submission && dirty) {
+    if (
+      config.repository.require_clean_submission &&
+      dirty &&
+      executionScope === "local"
+    ) {
       const reason = "Submission requires a clean target repository";
       const submitted = this.controller.submit(
         project,
@@ -329,6 +334,7 @@ export class AutomationService {
         {
           triggerSource: input.source,
           executionScope,
+          allowDirty: executionScope === "ci",
         },
       );
     } catch (error) {
@@ -593,6 +599,7 @@ export class AutomationWorker {
   }
 
   async runOnce(): Promise<WorkerResult> {
+    await this.dependencies.cycle?.();
     await dispatchNotificationsSafely(this.notifications);
     const now = this.clock.now();
     const leaseExpiresAt = new Date(

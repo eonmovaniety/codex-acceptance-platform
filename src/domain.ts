@@ -88,6 +88,13 @@ export interface AutomationConfig {
     cap_repository?: string;
     cap_ref?: string;
     cap_sha256?: string;
+    server_url?: string;
+    owner?: string;
+    repo?: string;
+    credential_ref?: string;
+    status_context?: string;
+    poll_seconds?: number;
+    mirror_remote?: string;
   };
   retry?: {
     infrastructure_max_attempts?: number;

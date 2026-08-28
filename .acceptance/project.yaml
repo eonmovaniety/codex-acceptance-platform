@@ -1,0 +1,73 @@
+version: 1
+project_id: codex-acceptance-platform
+display_name: Codex Acceptance Platform
+
+repository:
+  base_branch: master
+  require_clean_submission: true
+  submodules: false
+
+commands:
+  setup:
+    - npm ci --ignore-scripts --no-audit --no-fund
+  build:
+    - npm run build
+  lint:
+    - npm run lint
+  unit:
+    - npm run test:unit
+  integration:
+    - npm run test:integration
+
+runtime:
+  isolation: named
+  network_default: disabled
+  timeout_seconds: 1200
+  env_allowlist: [PATH, Path, PATHEXT, SystemRoot, TEMP, TMP]
+
+test_data:
+  version: v1
+
+reviewer:
+  provider: fake
+  mode: exec
+  fresh_thread_per_run: true
+  sandbox: read-only
+  network: disabled
+
+gate:
+  policy: gate-policy.yaml
+  policy_version: v1
+
+human_gates: []
+
+automation:
+  enabled: true
+  tasks:
+    - task_id: cap-self-test
+      contract: .acceptance/contract.yaml
+  local:
+    post_commit: true
+    worker: login_resident
+    poll_seconds: 5
+    concurrency: 1
+  ci:
+    provider: forgejo-poll
+    pull_request: true
+    push_branches: [master]
+    authoritative: true
+    server_url: http://192.168.31.9:3000
+    owner: Silmaril
+    repo: codex-acceptance-platform
+    credential_ref: cap-secret://forgejo/Silmaril
+    status_context: cap/self-test
+    poll_seconds: 5
+    mirror_remote: github
+  retry:
+    infrastructure_max_attempts: 1
+  notifications:
+    terminal: true
+    windows_toast: true
+    ci_summary: false
+    progress_after_seconds: 60
+    progress_interval_seconds: 120

@@ -1,0 +1,25 @@
+version: 1
+contract_id: cap-self-test-v1
+task_id: cap-self-test
+title: CAP platform self acceptance
+risk_level: R1
+
+requirements:
+  - id: cap-build
+    title: CAP TypeScript sources build cleanly
+    criticality: core
+    verification:
+      modes: [build, lint]
+      required_evidence: E2
+  - id: cap-unit
+    title: CAP unit behavior remains deterministic
+    criticality: core
+    verification:
+      modes: [unit]
+      required_evidence: E2
+  - id: cap-integration
+    title: CAP automation and persistence integration tests pass
+    criticality: core
+    verification:
+      modes: [integration]
+      required_evidence: E2

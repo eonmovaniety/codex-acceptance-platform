@@ -360,6 +360,31 @@ test("dirty submissions become BLOCKED without mixing uncommitted files", async 
   }
 });
 
+test("dirty source worktree does not block an exact-SHA CI run", async () => {
+  const fixture = await createFixture("automation-dirty-ci");
+  try {
+    fixture.git.status = " M user-work.ts";
+    const result = await new AutomationService({
+      store: fixture.store,
+      home: fixture.home,
+      git: fixture.git,
+      clock: fixedClock,
+      notifications: silentDispatcher(fixture),
+    }).enqueue({
+      projectId: fixture.project.id,
+      taskId: "TASK-001",
+      commit: targetCommit,
+      source: "ci_pull_request",
+      eventId: `forgejo:test/repo:pr:1:${targetCommit}`,
+    });
+    assert.equal(result.job.status, "QUEUED");
+    assert.equal(result.run?.status, "CREATED");
+    assert.equal(result.run?.executionScope, "ci");
+  } finally {
+    await closeFixture(fixture);
+  }
+});
+
 test("SQLite lease prevents duplicate workers and permits recovery after expiry", async () => {
   const fixture = await createFixture("automation-lease");
   try {
