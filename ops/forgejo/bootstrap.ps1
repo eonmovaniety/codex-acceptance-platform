@@ -237,7 +237,8 @@ printf 'docker_free_kb=%s volume3_free_kb=%s\n' "$available_kb" "$(df -Pk /volum
 
   Write-Step "Pulling Forgejo $ForgejoVersion and resolving immutable digest"
   Invoke-Nas "sudo -n /usr/local/bin/docker pull $ForgejoTag" | Out-Null
-  $digest = (Invoke-Nas "sudo -n /usr/local/bin/docker image inspect --format '{{index .RepoDigests 0}}' $ForgejoTag")[0].Trim()
+  $digestLines = @(Invoke-Nas "sudo -n /usr/local/bin/docker image inspect --format '{{index .RepoDigests 0}}' $ForgejoTag")
+  $digest = ([string]$digestLines[0]).Trim()
   if ($digest -notmatch '^codeberg\.org/forgejo/forgejo@sha256:[0-9a-f]{64}$') { throw "Invalid Forgejo digest: $digest" }
 
   $temp = Join-Path ([IO.Path]::GetTempPath()) "forgejo-deploy-$([guid]::NewGuid().ToString('N'))"
@@ -290,7 +291,8 @@ rm -f /tmp/cap-forgejo-compose.yaml /tmp/cap-forgejo-manifest.json /tmp/cap-forg
   if (Test-Path -LiteralPath $tokenPath) {
     $token = (Get-Content -Raw -LiteralPath $tokenPath).Trim()
   } else {
-    $token = (Invoke-Nas "sudo -n /usr/local/bin/docker exec forgejo forgejo admin user generate-access-token --username $ForgejoAdmin --token-name cap-poller --scopes write:repository,write:issue,write:user --raw")[0].Trim()
+    $tokenLines = @(Invoke-Nas "sudo -n /usr/local/bin/docker exec forgejo forgejo admin user generate-access-token --username $ForgejoAdmin --token-name cap-poller --scopes write:repository,write:issue,write:user --raw")
+    $token = ([string]$tokenLines[0]).Trim()
   }
   if ($token.Length -lt 20) { throw 'Forgejo API token generation failed' }
 
