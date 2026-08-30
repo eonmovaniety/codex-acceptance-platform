@@ -1,7 +1,10 @@
 #!/bin/sh
 set -eu
 
-ROOT=/volume3/docker/forgejo
+ROOT=/volume1/docker/forgejo
+DATA=/volume2/mydata/forgejo
+DATA_PARENT=/volume2/mydata
+DATA_NAME=forgejo
 BACKUPS="$ROOT/backups"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ARCHIVE="$BACKUPS/forgejo-daily-$STAMP.tar.gz"
@@ -9,7 +12,7 @@ DUMP="$BACKUPS/forgejo-dump-daily-$STAMP.zip"
 CONFIG="$BACKUPS/forgejo-config-daily-$STAMP.tar.gz"
 TMP="$ARCHIVE.tmp"
 CONFIG_TMP="$CONFIG.tmp"
-DUMP_IN_DATA="$ROOT/data/data/forgejo-dump-$STAMP.zip"
+DUMP_IN_DATA="$DATA/data/forgejo-dump-$STAMP.zip"
 DOCKER=/usr/local/bin/docker
 
 mkdir -p "$BACKUPS"
@@ -28,8 +31,8 @@ sudo -n "$DOCKER" compose run --rm --no-deps forgejo forgejo dump \
   --skip-log \
   --quiet
 mv "$DUMP_IN_DATA" "$DUMP"
-tar -czf "$TMP" -C "$ROOT" data compose.yaml deployment-manifest.json
-tar -czf "$CONFIG_TMP" -C "$ROOT" compose.yaml deployment-manifest.json data/custom/conf/app.ini backup.sh restore.sh
+tar -czf "$TMP" -C "$DATA_PARENT" "$DATA_NAME" -C "$ROOT" compose.yaml deployment-manifest.json
+tar -czf "$CONFIG_TMP" -C "$ROOT" compose.yaml deployment-manifest.json backup.sh restore.sh -C "$DATA" custom/conf/app.ini
 mv "$TMP" "$ARCHIVE"
 mv "$CONFIG_TMP" "$CONFIG"
 chmod 0600 "$ARCHIVE" "$DUMP" "$CONFIG"

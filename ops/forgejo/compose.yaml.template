@@ -36,7 +36,7 @@ services:
       - "3000:3000"
       - "2222:2222"
     volumes:
-      - ./data:/var/lib/gitea
+      - /volume2/mydata/forgejo:/var/lib/gitea
       - /etc/localtime:/etc/localtime:ro
     networks:
       - forgejo_internal

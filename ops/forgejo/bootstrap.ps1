@@ -11,7 +11,8 @@ $ForgejoVersion = '16.0.3'
 $ForgejoTag = "codeberg.org/forgejo/forgejo:$ForgejoVersion-rootless"
 $NasHost = 'nas-n100'
 $NasAddress = '192.168.31.9'
-$NasRoot = '/volume3/docker/forgejo'
+$NasRoot = '/volume1/docker/forgejo'
+$NasData = '/volume2/mydata/forgejo'
 $ForgejoUrl = 'http://192.168.31.9:3000'
 $ForgejoAdmin = 'Silmaril'
 $CapRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -238,13 +239,14 @@ function Set-AuthoritativeRemote([string]$RepositoryRoot, [string]$Name) {
 function Install-BackupSchedule {
   $command = @'
 set -eu
-ROOT=/volume3/docker/forgejo
+ROOT=/volume1/docker/forgejo
 STAMP=$(date +%Y%m%d-%H%M%S)
-if ! grep -q 'CAP_FORGEJO_BACKUP' /etc/crontab; then
+if grep -q 'CAP_FORGEJO_BACKUP' /etc/crontab; then
   cp /etc/crontab "$ROOT/backups/crontab.$STAMP.bak"
-  printf '15 3 * * * root %s/backup.sh # CAP_FORGEJO_BACKUP\n' "$ROOT" >> /etc/crontab
-  synosystemctl restart crond >/dev/null 2>&1 || true
+  sed -i '/CAP_FORGEJO_BACKUP/d' /etc/crontab
 fi
+printf '15 3 * * * root %s/backup.sh # CAP_FORGEJO_BACKUP\n' "$ROOT" >> /etc/crontab
+synosystemctl restart crond >/dev/null 2>&1 || true
 '@
   $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
   Invoke-Nas "echo $encoded | base64 -d | sudo -n sh" | Out-Null
@@ -257,7 +259,7 @@ set -eu
 DOCKER=/usr/local/bin/docker
 test -x "$DOCKER"
 test "$(sudo -n "$DOCKER" info --format '{{.DockerRootDir}}')" = '/volume1/@docker'
-test "$(stat -f -c %T /volume3)" = 'btrfs'
+test "$(stat -f -c %T /volume2)" = 'btrfs'
 for port in 3000 2222; do
   if /usr/bin/netstat -lnt | grep -Eq ":$port[[:space:]]"; then
     if ! sudo -n "$DOCKER" ps --format '{{.Names}}' | grep -qx forgejo; then
@@ -278,7 +280,7 @@ if [ "$available_kb" -lt "$target_kb" ]; then
 fi
 available_kb=$(df -Pk /volume1 | awk 'NR==2 {print $4}')
 [ "$available_kb" -ge "$target_kb" ] || { echo "Docker root still has only ${available_kb}KB free" >&2; exit 21; }
-printf 'docker_free_kb=%s volume3_free_kb=%s\n' "$available_kb" "$(df -Pk /volume3 | awk 'NR==2 {print $4}')"
+printf 'docker_free_kb=%s volume2_free_kb=%s\n' "$available_kb" "$(df -Pk /volume2 | awk 'NR==2 {print $4}')"
 '@
   Invoke-Nas $preflight | ForEach-Object { Write-Host $_ }
 
@@ -295,7 +297,7 @@ printf 'docker_free_kb=%s volume3_free_kb=%s\n' "$available_kb" "$(df -Pk /volum
     [IO.File]::WriteAllText((Join-Path $temp 'compose.yaml'), $compose, [Text.UTF8Encoding]::new($false))
     $manifest = @{
       version = 1; forgejo_version = $ForgejoVersion; image = $digest
-      installed_at = [DateTime]::UtcNow.ToString('o'); data_path = "$NasRoot/data"
+      installed_at = [DateTime]::UtcNow.ToString('o'); data_path = $NasData
     } | ConvertTo-Json
     [IO.File]::WriteAllText((Join-Path $temp 'deployment-manifest.json'), $manifest, [Text.UTF8Encoding]::new($false))
     Copy-ToNas (Join-Path $temp 'compose.yaml') '/tmp/cap-forgejo-compose.yaml'
@@ -308,15 +310,16 @@ printf 'docker_free_kb=%s volume3_free_kb=%s\n' "$available_kb" "$(df -Pk /volum
 
   $installRemote = @'
 set -eu
-ROOT=/volume3/docker/forgejo
+ROOT=/volume1/docker/forgejo
+DATA=/volume2/mydata/forgejo
 STAMP=$(date +%Y%m%d-%H%M%S)
-sudo -n mkdir -p "$ROOT/data" "$ROOT/backups"
+sudo -n mkdir -p "$ROOT/backups" "$DATA"
 if [ -f "$ROOT/compose.yaml" ]; then sudo -n cp "$ROOT/compose.yaml" "$ROOT/backups/compose.$STAMP.bak"; fi
 sudo -n install -m 0644 /tmp/cap-forgejo-compose.yaml "$ROOT/compose.yaml"
 sudo -n install -m 0644 /tmp/cap-forgejo-manifest.json "$ROOT/deployment-manifest.json"
 sudo -n install -m 0755 /tmp/cap-forgejo-backup.sh "$ROOT/backup.sh"
 sudo -n install -m 0755 /tmp/cap-forgejo-restore.sh "$ROOT/restore.sh"
-sudo -n chown -R 1000:1000 "$ROOT/data"
+sudo -n chown -R 1000:1000 "$DATA"
 cd "$ROOT"
 sudo -n /usr/local/bin/docker compose config >/dev/null
 sudo -n /usr/local/bin/docker compose up -d forgejo
@@ -383,7 +386,7 @@ rm -f /tmp/cap-forgejo-compose.yaml /tmp/cap-forgejo-manifest.json /tmp/cap-forg
 function Verify-Forgejo {
   Write-Step 'Verifying service, repositories, protection, CAP polling, and backup path'
   Wait-Forgejo
-  $remote = Invoke-Nas "cd $NasRoot && sudo -n /usr/local/bin/docker compose ps --format json; test -x $NasRoot/backup.sh; test -x $NasRoot/restore.sh; df -h /volume1 /volume3"
+  $remote = Invoke-Nas "cd $NasRoot && sudo -n /usr/local/bin/docker compose ps --format json; test -x $NasRoot/backup.sh; test -x $NasRoot/restore.sh; test -f $NasData/data/forgejo.db; df -h /volume1 /volume2"
   $remote | ForEach-Object { Write-Host $_ }
   Invoke-Cap @('automation', 'forgejo', 'verify', '--project', 'codex-acceptance-platform') | Out-Host
   Invoke-Cap @('automation', 'forgejo', 'verify', '--project', 'atmosphere-engine') | Out-Host
